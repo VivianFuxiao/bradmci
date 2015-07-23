@@ -545,32 +545,17 @@ if(!$options{anat_rawdir})
 
         chdir("$scriptdir");
 
-        ## --- call unpack_dicom.py (alt_unpack) or unpack_fsl.sh
-        if($options{alt_unpack})                                 
-        {                                                        
-                info("Checking for unpack_dicom.py on your PATH");
-                system("which unpack_dicom.py");                  
-                check_status();                                   
+        ## --- call unpack_fsl.sh                                                
+        info("Checking for unpack_fsl.sh on your PATH");                   
+        my $whichunpack = "which unpack_fsl.sh";                           
+        system($whichunpack);                                              
+        check_status();                                                    
 
-                my $config_file = $scriptdir . "/" . $cfgfile;
-                my $cmd = "unpack_dicom.py -i $rawddir -c $config_file -o $subdir";
-                info("Unpack DICOM command => $cmd");                              
-                system($cmd);                                                      
-                check_status();                                                    
-        }                                                                          
-        else                                                                       
-        {                                                                          
-                ## --- call unpack_fsl.sh                                          
-                info("Checking for unpack_fsl.sh on your PATH");                   
-                my $whichunpack = "which unpack_fsl.sh";                           
-                system($whichunpack);                                              
-                check_status();                                                    
-
-                my $unpck = "unpack_fsl.sh -rawdir $rawddir -cfgdir $scriptdir -subid $sid";
-                info("Unpack command => $unpck");                                           
-                system($unpck);                                                             
-                check_status();                                                             
-        }                                                                                   
+        my $unpck = "unpack_fsl.sh -rawdir $rawddir -cfgdir $scriptdir -subid $sid";
+        info("Unpack command => $unpck");                                           
+        system($unpck);                                                             
+        check_status();                                                             
+                                                                                   
 }                                                                                           
 else                                                                                        
 {                                                                                           
