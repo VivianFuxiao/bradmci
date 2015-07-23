@@ -1,0 +1,127 @@
+#!/bin/bash
+
+# ROIcreate ./ROIs 4 MyFileOfROIs
+function usage {
+   echo " RRR  OOOO III    CCCC RRR  EEEE   A   TTT EEEE"
+   echo " R  R O  O  I     C    R  R E     A A   T  E"
+   echo " RRR  O  O  I     C    RRR  EEE  AAAAA  T  EEE"
+   echo " R R  O  O  I     C    R R  E    A   A  T  E"
+   echo " R  R OOOO III    CCCC R  R EEEE A   A  T  EEEE"
+   echo ""
+   echo "Creates spherical ROIs in nii.gz format from a list of MNI coordinates in MNI152 space."
+   echo "Updated with NRG paths and tools. Consider this a batch mechanism for region_nifti."
+   echo "v2.0 -- minor patches -- Mike Stepanovic 2015-07-23"
+   echo ""
+   echo "REQUIRED:"
+   echo "  -i  <file>  ROI config file. "
+   echo "              Each line should contain 'ROINAME X Y Z SIZE'"
+   echo "              with no spaces in the name. Size in mm."
+   echo "              if no size specified, size will be taken from -s"
+   echo "              argument, or defaulted to 5mm."
+   echo ""
+   echo "OPTIONAL:"
+   echo "  -o  <dir>   Output ROI directory, default ./ROIs/"
+   echo "  -l  <name>  ROI set name/label, default 'ROIs'"
+   echo "  -s  <size>  ROI size, default 5mm"
+   echo "  -m          Use high-res (1mm) space, default 2mm"
+   echo "  -v          Use custom input volume"
+   echo "  -h          Display help."
+   echo ""   
+}
+
+ROIdir="ROIs"
+ROIlabel="ROIs"
+ROIsize="5"
+
+while getopts "s:i:o:l:v:h m " o ; do
+    case $o in
+         s ) ROIsize=$OPTARG;;
+	 i ) ROIcfg=$OPTARG;;
+	 o ) ROIdir=$OPTARG;;
+	 l ) ROIlabel=$OPTARG;;
+	 v ) TEMPLATE=$OPTARG;;
+	 m ) HIGHRES=1;;
+	 h ) usage;
+	     exit 0;;
+    esac
+done
+
+if [ $# -eq 0 ]; then
+   usage; exit 0;
+fi
+
+if [ ! $ROIcfg ]; then
+    echo "Please specify ROI config file using -i argument."; exit;
+fi
+
+if [ ! -r $ROIcfg ]; then
+    echo "Error: cannot read $ROIcfg."; exit;
+fi
+
+if [ ! $TEMPLATE  ]; then
+    if [ $HIGHRES ]; then
+	TEMPLATE="/cluster/nrg/tools/current/apps/arch/linux_x86_64/fsl/5.0.1/data/standard/MNI152lin_T1_1mm_brain.nii.gz"
+    else
+	TEMPLATE="/cluster/nrg/tools/current/apps/arch/linux_x86_64/fsl/5.0.1/data/standard/MNI152lin_T1_2mm_brain_mask.nii.gz"
+    fi
+else
+    if [ ! -r $TEMPLATE ]; then
+    	echo "Error: cannot read file ${TEMPLATE}"; exit;
+    fi
+fi
+
+mkdir -p $ROIdir;
+ROIsdir=`readlink -f $ROIdir`;
+echo ""
+echo "ROIsdir: ${ROIsdir}"
+echo ""
+
+rm -f $ROIsdir/${ROIlabel}.lst;
+rm -f $ROIsdir/${ROIlabel}_names.lst;
+rm -f /tmp/$$.*
+
+i=0;
+while read roi; do
+    x=$( echo $roi | awk '{print $2}' );
+    y=$( echo $roi | awk '{print $3}' );
+    z=$( echo $roi | awk '{print $4}' );
+    rsize=$( echo $roi | awk '{print $5}' );
+    ROIname=$( echo $roi | awk '{print $1}' );
+    if [ "$x" == "" ]; then
+        continue;
+    fi
+    if [ "$rsize" == "" ]; then
+        size=$ROIsize;
+    else
+    	# make sure the size in file is a number
+	if [ $rsize -eq $rsize 2> /dev/null ]; then
+            size=$rsize;
+	else
+    	    size=$ROIsize;
+	fi
+    fi
+    
+    echo ""
+    echo "ROI:  ${ROIname}"
+    echo "loc:  $x $y $z"
+    echo "size: $size mm"
+    echo ""
+
+    region_nifti $x $y $z -rad $size -val 1 -thresh 0.5 -i ${TEMPLATE}  -o $ROIsdir/$ROIname
+    fname="${ROIsdir}/${ROIname}_reg${size/\./pt}mm_${x}_${y}_${z}";
+    # that trailing underscore bugs me for some reason
+    mv ${fname}_.nii.gz $fname.nii.gz;
+    echo "${fname}.nii.gz" >> /tmp/$$.f.lst #${ROIsdir}/${ROIlabel}.lst
+    echo "${ROIname}" >> /tmp/$$.l.lst #${ROIsdir}/${ROIlabel}_names.lst
+    i=$(($i+1));
+done < $ROIcfg;
+
+# write to the file all at once (due to problems in the past)
+cat /tmp/$$.f.lst > ${ROIsdir}/${ROIlabel}.lst
+cat /tmp/$$.l.lst > ${ROIsdir}/${ROIlabel}_names.lst
+
+if [ $i -gt 0 ]; then
+    echo ""
+    echo "$i ROIs listed in $ROIdir/${ROIlabel}.lst. Use this file as -roilist input into fcfast."
+    echo "$ROIdir/${ROIlabel}_names.lst contains the corresponding ROI names."
+fi
