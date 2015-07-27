@@ -1,0 +1,116 @@
+#!/bin/bash
+
+#############################################
+#
+# Returns network ROI file list & network ROI names list for selected network.
+# -l returns file list
+# -L returns name list
+# 
+# to test if a network exists (based on the name) use the following:
+# fc_networks -n some_network_to_test -e
+#
+# to get list of available networks (it will return a 1 if true, 0 if false):
+# fc_networks -P
+#
+# 
+#############################################
+
+NETWORKSFILE="/cluster/animal/users/mhollen/scripts/fc_networks.csv"
+ROISIZE=6
+
+if [ ! -r $NETWORKSFILE ]; then
+    exit 1;
+fi
+
+availablenetworks=$(more +2 $NETWORKSFILE | cut -d',' -f1 | sort | uniq | xargs)
+
+# prints list of networks
+function printnetworks {
+    echo "************************************"
+    echo "NETWORKS: "
+    for x in $availablenetworks; do echo -e "\t$x"; done
+    echo "************************************"
+}
+
+
+function networkExists {
+    for network in $availablenetworks; do
+    	if [[ "$network" == "$1" ]]; then 
+	    echo 1; return;
+	fi
+    done
+    echo 0;
+}
+
+
+function usage
+{
+echo """
+Returns network ROI file list & network ROI names list for selected network.
+-l returns file list
+-L returns name list
+ 
+to test if a network exists (based on the name) use the following:
+fc_networks -n some_network_to_test -e
+
+to get list of available networks (it will return a 1 if true, 0 if false):
+fc_networks -p
+
+-o <dir>  Output directory for ROI files, default in /tmp/networks.$(whoami)
+"""
+
+    printnetworks
+
+}
+
+OUTDIR="/tmp/networks.$(whoami)"
+
+while getopts "r:n:o: e h p P l L " o ; do
+    case $o in
+	 r ) ROISIZE=$OPTARG;;
+	 n ) NETWORK="$OPTARG";;
+	 e ) CHECKEXIST=1;;
+	 P ) printnetworks; exit 0;;
+	 p ) echo $availablenetworks; exit 0;;
+	 l ) RETURNFILES=1;;
+	 L ) RETURNNAMES=1;;
+	 o ) OUTDIR=$OPTARG;;
+	 h ) usage;
+	     exit 0;;
+    esac
+done
+
+if [ $# -eq 0 ]; then
+   usage; exit 0;
+fi
+
+if [ "$CHECKEXIST" ]; then
+    # check for network existence
+    if [[ $(networkExists $NETWORK) -eq 1 ]]; then
+    	echo "1";
+    else
+    	echo "0";
+    fi
+    exit 0;
+fi
+
+mkdir -p $OUTDIR
+
+# if network doesn't exist, don't output anything & exit
+if [[ ! $(networkExists $NETWORK) -eq 1 ]]; then exit 1; fi
+
+# make roi list (to use for ROIcreate) GOD THIS IS STUPIDLY COMPLICATED
+more +2 $NETWORKSFILE | grep ^$NETWORK | awk -F , '{print $1"_"$2,$3,$4,$5}' > /tmp/$$.lst
+
+# output some shit. 
+if [ "$RETURNFILES" ]; then
+    # silence ROIcreate (it should work without problem...)
+    /cluster/animal/users/mhollen/scripts/ROIcreate -i /tmp/$$.lst -o $OUTDIR -s $ROISIZE -l $NETWORK &> /dev/null
+    cat $OUTDIR/${NETWORK}.lst | xargs
+    exit 0;
+elif [ "$RETURNNAMES" ]; then
+    cat /tmp/$$.lst | awk '{print $1}' | xargs
+    exit 0;
+fi
+
+

@@ -1,0 +1,246 @@
+#!/bin/bash
+
+# source matlab
+source /autofs/cluster/animal/users/stepanov/scripts/NRG-fc/extras/matlab_74
+
+#
+# For each subject, extracts time courses for each run
+# and computes correlation coefficients using ROIs.
+# Also generates a corresponding matrix graphic. 
+#
+
+function usage {
+
+ echo " ______ _____            _   _          _  __     _______ _____  _____ "
+ echo "|  ____/ ____|     /\   | \ | |   /\   | | \ \   / / ____|_   _|/ ____|"
+ echo "| |__ | |         /  \  |  \| |  /  \  | |  \ \_/ / (___   | | | (___  "
+ echo '|  __|| |        / /\ \ | . ` | / /\ \ | |   \   / \___ \  | |  \___ \  ~~~ version 1.2.1'
+ echo "| |   | |____   / ____ \| |\  |/ ____ \| |____| |  ____) |_| |_ ____) |"
+ echo "|_|    \_____| /_/    \_\_| \_/_/    \_\______|_| |_____/|_____|_____/ "
+                                                                       
+ echo ""
+ echo "REQUIRED:"
+ echo "  -i  <arg>  Subject names"
+ echo "  -r  <arg>  ROI file locations"
+ echo "  -n  <arg>  ROI names, default ROI file name"
+ echo "  -l  <arg>  Analysis label, e.g. 'DMN' (no spaces)"
+ echo ""
+ echo " Note: when using multiple arguments, place in quotes:"
+ echo "   fc_analysis -i \"SUBJ1 SUBJ2 SUBJ3\" -r \"ROI1 ROI2\" -n \"PCC HIPPO\" -l 'PCC_HIPPO_FC'"
+ echo ""
+ echo "OR:"
+ echo "  -I  <file> File containing list of subjects"
+ echo "  -R  <file> File containing list of ROI files"
+ echo "  -N  <file> File containing list of ROI names"
+ echo "  -l  <arg>  Analysis label, e.g. 'DMN' (no spaces)"
+ echo ""
+ echo "Options:"
+ echo "  -u  <file> Filename of run list (as found in <SUBJECT>/<file>)"
+ echo "  -k         Gaussian smoothing BOLD to process, default 6mm"
+ echo "  -e         Force timecourse extraction"
+ echo "  -t         Do not calculate subject averages"
+ echo "  -s         Do not calculate group averages"
+ echo "  -m         Make images of coefficent matrices"
+ echo "  -p  <arg>  Only show coefficients where p < arg. (default is .05)."
+ echo "             All other values are converted to 0.000 on matrix plots" 
+ echo "  -o  <arg>  Output directory, default ./GROUP_STATS/<user>/FC"
+ echo "  -h         Help"
+ echo ""   
+}
+
+ROINAMES=""
+RD="$PWD/GROUP_STATS/$(whoami)/FC";
+PVAL="0.050";
+SMOOTH=6;
+
+while getopts "i:r:I:R:n:N:u:l:o:p:k:e h t s m" o ; do
+    case $o in
+         i ) SUBJECTS=$OPTARG;;
+	 I ) SUBJECTS=$(cat $OPTARG | xargs);;
+	 r ) ROIS=$OPTARG;;
+	 R ) ROIS=$(cat $OPTARG | xargs);;
+	 n ) ROINAMES=$OPTARG;;
+	 N ) ROINAMES=$(cat $OPTARG | xargs);;
+	 k ) SMOOTH=$OPTARG;;
+	 e ) FORCEEXTRACT=1;;
+	 p ) PVAL=$OPTARG;;
+	 l ) AL=$OPTARG;;
+	 o ) RD=$OPTARG;;
+	 t ) SKIPSUB=1;;
+	 s ) SKIPGRP=1;;
+	 m ) MAKEIMG=1;;
+	 u ) RUNLISTFILE=$OPTARG;;
+	 h ) usage;
+	     exit 0;;
+    esac
+done
+
+if [ $# -eq 0 ]; then
+   usage; exit 0;
+fi
+
+resultsdir=${RD}
+
+if [ ${#SUBJECTS} -lt 1 ]; then
+    echo "Error: Please provide subjects.";
+    usage; exit 0;
+fi
+
+if [ ${#ROIS} -lt 1 ]; then
+    echo "Error: Please provide at least 2 ROIs."
+    usage; exit 0;
+fi
+
+if [ ! $AL ]; then
+    echo "Error: Please specify an analysis label, using -l.";
+    exit 0;
+fi
+
+if [ $SMOOTH -eq 0 ]; then
+    SMOOTH_HALF_F=0
+else
+    SMOOTH_HALF_F=$( echo 'scale=15;(.4412712/('$SMOOTH'/100))' | bc  | awk '{print int($1)}' );
+fi
+
+echo "SUBJECTS: "$SUBJECTS;
+echo ""
+echo "ROIS: "$ROIS;
+echo ""
+echo "ROI NAMES: $ROINAMES";
+echo ""
+
+
+function extract {
+    n=1;
+    comm="addpath('/cluster/animal/users/mhollen/scripts/matlab/'); all=[]; "
+    
+    mkdir -p ${resultsdir}/${AL}
+    mkdir -p ${resultsdir}/${AL}/timecourses
+    for subject in $SUBJECTS; do
+        comm="${comm} subj=[];"
+	fc=$( ls -d ${subject}/bold/0*/ | wc | awk '{print $1}' )
+	if [ $fc == 0 ]; then
+	    echo -e "Error: No BOLD runs found for subject ${subject}."
+	    exit
+	fi
+	
+	### CHANGES FOR 1.2 MADE BELOW ###
+	## concatenate the timecourses.... UGH, WHY DID I NOT DO THIS BEFORE?!? I surprise myself with my stupidity
+	
+	ppstr=$(/cluster/animal/users/mhollen/scripts/fc_ppstr $subject)
+	RUNLISTtxt=${subject}/fcMRI/${subject}_${ppstr}_g${SMOOTH_HALF_F}_bpss_resid.txt
+
+	if [ "$RUNLISTFILE" != "" ]; then
+	    if [ ! -r $subject/$RUNLISTFILE ]; then
+	    	echo "*** No runlist file ( $RUNLISTFILE ) found for ${subject}! Skipping subject... ***"
+		continue;
+	    else
+	    	echo "using specific runlist file... $subject/$RUNLISTFILE"
+	    	t=$(cat $subject/$RUNLISTFILE | xargs);
+		echo " $t"
+		for x in $t; do
+		    ga="$ga-e /bold/$x/ "
+		done
+		cat $RUNLISTtxt | grep -i $ga > /tmp/${subject}.${RUNLISTFILE}.$$.txt
+		RUNLIST=/tmp/${subject}.${RUNLISTFILE}.$$.txt
+		
+	    fi
+	else
+	    RUNLIST=$RUNLISTtxt
+	fi
+	
+	format=""
+	for x in $(cat $RUNLIST); do
+	    if [ ! -e $x".nii.gz" ]; then
+		echo "Error: cannot find file $x.nii.gz"
+		exit;
+	    else
+		tp=$(fslnvols $x".nii.gz")
+		format="${format}0x${tp}+"
+	    fi
+	done
+
+
+	comm="${comm} tc=[];"
+	seednames=""
+	for seed in $ROIS; do
+	    seedname=$(basename ${seed%%.nii*})
+	    seednames="$seednames '$seedname', "
+	    fileloc=${resultsdir}/${AL}/timecourses/${subject}_${seedname}
+	    if [ ! -r ${fileloc}.voxt.dat ] ||  [ $FORCEEXTRACT ]; then
+	    	echo "Extracting timecourse for subject: $subject, ROI: $seedname"
+		qnt_nifti -s -list $RUNLIST ${seed} | awk '$1 !~/#/ {print $2}' > ${fileloc}.voxt.dat
+		if [ ! -r ${fileloc}.voxt.dat ]; then
+		    echo "Error: Cannot find ${fileloc}.voxt.dat. Trying again...";
+		    qnt_nifti -s -list $RUNLIST ${seed} | awk '$1 !~/#/ {print $2}' > ${fileloc}.voxt.dat
+	    	fi
+	    else
+	    	echo "Using previous timecourse file -- subject: $subject, ROI: $seedname"
+	    fi
+	    if [ ! -r ${fileloc}.voxt.dat ]; then
+		echo "Error: Cannot find ${fileloc}.voxt.dat. Try forcing timecourse extraction using -e."; exit;
+	    fi
+
+    	    if [ "$(cat ${fileloc}.voxt.dat | wc -w)" == "0" ]; then
+	    	echo "Error: ${fileloc}.voxt.dat is empty. Forcing extraction..."; 
+		qnt_nifti -s -list $RUNLIST ${seed} | awk '$1 !~/#/ {print $2}' > ${fileloc}.voxt.dat
+	    fi
+	    comm="${comm} tcf= load('${fileloc}.voxt.dat'); tc=[tc tcf];\n"
+        done
+	if [ $(echo ${ROINAMES} | wc -w) -eq $(echo ${ROIS} | wc -w) ]; then
+	    seednames="'${ROINAMES// /', '}'";
+	fi
+	# calculate coef
+	comm="${comm} [fc, pval] = corrcoef(tc); fcz = real(r_2_fisher_z(fc)); \n"
+    	comm="${comm} all(:,:,${n}) = fcz; allr(:,:,${n}) = fc; \n"
+
+    	### END CHANGES TO 1.2 ###
+
+	
+	if [ ! $SKIPSUB ]; then
+	    fname="${resultsdir}/${AL}/${subject}.dat"
+	    comm="${comm} save ${fname} fcz -ascii;\n"
+	    comm="${comm} fprintf('writing: ${fname}\\\n'); \n"
+	    
+	    if [ $MAKEIMG ]; then
+		comm="${comm} cfig = fcmatrix(fcz, {${seednames}}, '${AL}: ${subject}');\n"
+		fname="${resultsdir}/${AL}/${subject}.png"
+		comm="${comm} saveas(cfig, '${fname}', 'png');\n"
+		comm="${comm} fprintf('writing: ${fname}\\\n'); \n"
+	    fi
+	fi
+	n=$(($n+1))
+    done
+    if [ ! $SKIPGRP ]; then
+        fname="${resultsdir}/${AL}/${AL}.dat"
+	fnamer="${resultsdir}/${AL}/${AL}_r.dat"
+	fmat="${resultsdir}/${AL}/${AL}.mat"
+	comm="${comm} save('${fmat}', 'all'); \n"
+	comm="${comm} allm = mean(all,3); save ${fname} allm -ascii;\n"
+	comm="${comm} allmr = mean(allr,3); save ${fnamer} allmr -ascii;\n"
+	comm="${comm} fprintf('writing: ${fname}\\\n'); \n"
+	fname="${resultsdir}/${AL}/${AL}_sd.dat"
+	comm="${comm} allstd = std(all,0,3); save ${fname} allstd -ascii;\n"
+	comm="${comm} fprintf('writing: ${fname}\\\n'); \n"
+	if [ $MAKEIMG ]; then
+	    comm="${comm} cfig = fcmatrix(allm, {${seednames}}, '${AL}');\n"
+	    fname="${resultsdir}/${AL}/${AL}.png"
+	    comm="${comm} saveas(cfig, '${fname}', 'png');\n"
+	    comm="${comm} fprintf('writing: ${fname}\\\n'); quit; \n"
+	fi
+    fi
+    echo -e $comm
+    cmdfile="$(whoami)$$.m"
+    echo -e $comm > $cmdfile
+    run_matlab -nosplash -nodesktop -nojvm -r "${cmdfile%%.m}; exit"
+    rm $cmdfile
+}
+
+extract;
+
+if [ -e ${resultsdir}/${AL}/ ]; then
+    cd ${resultsdir}/${AL}/;
+    /cluster/animal/users/mhollen/scripts/flatten_matrices "$SUBJECTS" "$ROINAMES" "$(basename ${AL})"
+fi
+
+echo "Finished!"

@@ -1,0 +1,6 @@
+primary_motor_lh_tongue -55 -4 26
+primary_motor_lh_hand -41 -20 62
+primary_motor_lh_foot -6 -26 76
+primary_motor_rh_tongue 55 -4 26
+primary_motor_rh_hand 41 -20 62
+primary_motor_rh_foot 6 -26 76

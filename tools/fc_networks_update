@@ -1,0 +1,223 @@
+#!/bin/bash
+
+#############################################
+#
+# The goal of this script has changed since its inception. This will likely only serve to 
+# update the network list of ROIs and the corresponding "report" including snapshots, etc. 
+# A separate script will be used to return a list of ROIs for each network
+#
+#############################################
+
+NETWORKSFILE="/cluster/animal/users/mhollen/scripts/fc_networks.csv"
+ROISDIR="/cluster/animal/users/mhollen/scripts/fc_networks.rois"
+
+
+# multiple subject files?
+SUBJECTSfile=""
+# default: all networks
+NETWORKS=""
+ROISIZE=6
+CURDIR=$(pwd)
+WHOAMI=$(whoami)
+
+# report of ROIs/networks
+REPORTDIR="/autofs/homes/006/mhollen/public_html/fc_network"
+
+# fc-results of ROIs/network testing
+TESTDIR="/cluster/animal/rs-fmri/YC"
+
+# TODO: need to incorporate this below (for testing)
+# TODO: also, we need to remove old group-level mnap results (hmm....)
+TESTSUBSFILE="buckner_subjects_ready"
+TESTMAPSDIR="$TESTDIR/GROUP_STATS/mhollen/FCMAP"
+
+availablenetworks=$(more +2 $NETWORKSFILE | cut -d',' -f1 | sort | uniq | xargs)
+
+
+function printnetworks {
+    echo "************************************"
+    echo "NETWORKS: "
+    for x in $availablenetworks; do echo -e "\t$x"; done
+    echo "************************************"
+}
+
+function usage
+{
+    echo "Calculates FC strength of canonical networks"
+    echo ""
+    echo "Use: "
+    echo "   fc_networks <options> -s subjects-file-list -g analysis-name"
+    echo "   fc_networks <options> -S subject(s) -g analysis-name"
+    echo ""
+    echo "OPTIONS:"
+    echo "   -r <size>       Radius of ROIs (in mm; default: 6mm)"
+    echo "   -n <network>    Specify network (default: all). Can be used multiple times"
+    echo "   -x              TODO: calculate intra-network"
+    echo ""
+    echo "QA-things (only Mark):"
+    echo "   -m              Generate ROI files (from csv file)"
+    echo "   -t              Make z-maps using ROIs from all networks"
+    echo "                         will also make network-average maps"
+    echo "   -Q              Update snapshots of ROIs/network maps."
+    echo "   -h              Help menu"
+    echo ""
+    printnetworks
+
+}
+
+while getopts "s:S:r:g:n: m t h Q " o ; do
+    case $o in
+         S ) SUBJECTS=$OPTARG;;
+	 s ) SUBJECTSfile=$OPTARG;;
+	 r ) ROISIZE=$OPTARG;;
+	 n ) NETWORKS="$NETWORKS $OPTARG";;
+	 t ) TESTMAPS=1;;
+	 g ) ANALYSISNAME=$OPTARG;;
+	 m ) MAKEROIS=1;;
+	 Q ) UPDATESNAPSHOTS=1;;
+	 h ) usage;
+	     exit 0;;
+    esac
+done
+
+
+if [ $# -eq 0 ]; then
+   usage; exit 0;
+fi
+
+
+NETROISDIR="$ROISDIR/networks_${ROISIZE}mm"
+
+
+# TO DO: CHANGE BELOW!!
+
+# if specific network(s) is not specified, use all.
+if [ "$NETWORKS" == "" ]; then 
+    NETWORKS=$availablenetworks
+else
+    # check to see if networks exist
+    for net in $NETWORKS; do
+	#if [ ! -d $NETROISDIR/network_${net} ]; then
+    	    #echo "Error: cannot find network \"$net\"";
+	    #printnetworks; exit 1;
+	#fi
+	echo "using $net..."
+    done
+fi
+
+
+############## Q/A things ################
+
+echo "REPORT: $REPORTDIR"
+mkdir -p $REPORTDIR
+mkdir -p $REPORTDIR/imgs
+
+function networkMaps {
+    for net in $NETWORKS; do
+    	if [ "$(hostname)" == "launchpad" ]; then
+	    # let's run them on launchpad, if possible (although, you'll have to update the report later...
+	    pbsubmit -m $(whoami)@nmr.mgh.harvard.edu -q max10 -p -c "/cluster/animal/users/mhollen/scripts/fc_map_corr -S '$SUBJECTS' -r $NETROISDIR/${net}.lst -n $NETROISDIR/${net}_names.lst -G network_${net} -g;"
+    	else
+    	    /cluster/animal/users/mhollen/scripts/fc_map_corr -S '$SUBJECTS' -r $NETROISDIR/${net}.lst -n $NETROISDIR/${net}_names.lst -G network_${net} -g;
+	fi
+    done
+}
+
+
+# TODO split below up into html and map creation...
+function updateReport {
+    rfile=$REPORTDIR/index.html
+    echo "<html><head><title>FC Networks</title></head><body>" > $rfile
+    for net in $availablenetworks; do
+    	netdir=$TESTMAPSDIR/network_${net}
+	# check if result maps exist; make snapshots of average network fc-map
+	if [ $(ls $TESTMAPSDIR/network_${net}/*_avg.nii.gz | wc -w) -eq $(cat $NETROISDIR/${net}_names.lst | wc -w) ]; then
+	    cd $netdir
+    	    imgopr_nifti -e$netdir/${net}.avg.nii.gz $(ls $netdir/*_avg.nii.gz | xargs)
+	    /cluster/animal/users/mhollen/scripts/vol2surf -v $netdir/${net}.avg.nii.gz -c
+	    /cluster/animal/users/mhollen/scripts/surface_snapshot -i ${net}.avg.mgh -o ${net}.avg -D $REPORTDIR/imgs -d $netdir/ -s pial -T -t .15 -m .25	    
+	    cd $CURDIR
+	else
+    	    echo "* ERROR * cannot find all result z-maps in $TESTMAPSDIR/network_${net}/. No snapshots made"; exit 1;
+	fi
+    	
+	echo "<h3>$net</h3><table border=1 cellpadding=4><tr><td>&nbsp;</td><td><b>ROIs (surface view)</b></td>" >> $rfile
+	echo "<td><b>Average Connectivity Map</b></td></tr><tr><td valign=top align=center>" >> $rfile
+	# roi list table
+    	echo "<table border=1 width=350 cellpadding=3><tr><td><b>ROI</b></td><td><b>X</b></td><td><b>Y</b></td><td><b>Z</b></td></tr>" >> $rfile
+	cat $ROISDIR/${net}.lst | awk '{print "<tr><td>"$1"</td><td>"$2"</td><td>"$3"</td><td>"$4"</td></tr>"}' | sed 's/\_/ /g' >> $rfile
+	echo "</table><br />SOURCE(s): " >> $rfile
+	more +2 $NETWORKSFILE | grep ^$net | awk -F , '{print $6}' | sort | uniq | sed 's/\n/, /g;s/\"//g;' >> $rfile
+	echo "</td><td valign=top><a href=imgs/$net.rois.png><img src=imgs/$net.rois.png border=0 width=350 /></a><br></td>" >> $rfile
+	echo "<td valign=top><a href=imgs/$net.avg.png><img src=imgs/$net.avg.png border=0 width=350 /></a><br></td></tr></table>" >> $rfile
+	echo "<br />" >> $rfile
+    done
+    echo "</body></html>" >> $rfile
+    
+    echo ""
+    echo "**************************************************************************"
+    echo "* View ROIs and Networks: http://nmr.mgh.harvard.edu/~mhollen/fc_networks/"
+    echo "************************************************************************** "
+    echo ""
+}
+
+
+function makerois {
+    rm -f $NETROISDIR/*
+    mkdir /tmp/$$/
+    for net in $availablenetworks; do
+	more +2 $NETWORKSFILE | grep ^$net | awk -F , '{print $1"_"$2,$3,$4,$5}' > $ROISDIR/${net}.lst
+	/cluster/animal/users/mhollen/scripts/ROIcreate -i $ROISDIR/${net}.lst -o $NETROISDIR -s $ROISIZE -l $net
+	chmod -R 744 $ROISDIR
+	if [ "$UPDATESNAPSHOTS" ]; then
+	    # if need be, make surface snapshots of the ROIs
+	    cd $NETROISDIR
+	    mri_or $(cat $NETROISDIR/${net}.lst | xargs) /tmp/$$/${net}.rois.nii.gz
+	    /cluster/animal/users/mhollen/scripts/vol2surf -v /tmp/$$/${net}.rois.nii.gz -c
+	    /cluster/animal/users/mhollen/scripts/surface_snapshot -i ${net}.rois.mgh -o ${net}.rois -D $REPORTDIR/imgs -d . -s inflated -X -t .45 -m 1.1
+	    cd $CURDIR
+	fi
+    done
+    
+    # clean up, clean up, everybody do their share
+    rm -r /tmp/$$/
+    
+    # generate new maps
+    networkMaps
+    
+    # update report
+    updateReport
+}
+
+
+# Subjects
+if [ "$SUBJECTS" == "" ]; then
+    if [ ! -r $SUBJECTSfile ]; then
+	echo "Error: cannot open subjects file: $SUBJECTSfile. (-h for help)"; exit 1;
+    fi
+    SUBJECTS="$(cat $SUBJECTSfile | xargs)";
+    if [ "$SUBJECTS" == "" ]; then
+    	echo "Error: no subjects found."; exit 1;
+    fi
+    echo "SUBJECTS: $SUBJECTS";
+fi
+
+
+# these functions are only used to update the ROIs / Report
+if [ "$MAKEROIS" ]; then
+    makerois
+else
+    [ "$TESTMAPS" ] && networkMaps
+    [ "$UPDATESNAPSHOTS" ] && updateReport
+fi
+
+##########################################
+
+
+
+
+
+
+
+
+

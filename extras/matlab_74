@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# by default, use Matlab 7.4 
+# don't change this env var -- it's used by other scripts
+export MATLAB_VER='/usr/pubsw/bin/matlab7.4'
+
+function run_matlab () {
+    echo "$MATLAB_VER $@"
+    $MATLAB_VER "$@"
+}
+

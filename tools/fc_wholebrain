@@ -1,0 +1,104 @@
+#!/usr/bin/perl
+
+use strict;
+use Getopt::Long;
+use Cwd;
+use Cwd 'abs_path';
+
+my %options;
+my @seeds;
+my $seed;
+my $sid;
+my $tr = 5;
+my $nskip = 4;
+my $fwhm;
+my $mpr;
+my $epi = "";
+my @bold;
+my $boldnum;
+my $rdir;
+my $rawddir;
+my $dcmdir;
+my $idsleft;
+my $args = @ARGV;
+my $pwd;
+my @roidir;
+my $roi;
+my $roidir;
+my $dirs;
+my $bool;
+my @ziplist;
+my @zfrmlist;
+my $prms;
+my $fslpp;
+my $anat;
+my $errorval;
+my $mskimg ="/autofs/space/nexus_001/users/avi-tools/refdir/711-2V_mask_on_N12Trio_avg152T1.nii.gz";
+my $threshval;
+my $bsub;
+my $cluster;
+my @contxt;
+my $bcoutput;
+my $pid;
+my $T1target ="/autofs/space/nexus_001/users/avi-tools/refdir/target/rN12Trio_avg152T1_brain.4dint";
+my $T2target ="/usr/pubsw/common/spm/spm2/templates/EPI.mnc";
+my $spmdir = "\#";
+#time variables
+my @Months;
+my @Now;
+my $Now;
+my $Month;
+my $Year;
+my @Weekdays;
+my $Weekday;
+my $Hour;
+my $AMPM;
+my $Weekday;
+my $Minute;
+my $Seconds;
+
+my $subdir;
+my $acgurl;
+my $host;
+my $field;
+my $value;
+
+
+$errorval = eval {GetOptions(\%options, "id=s", "sdir=s", "skip=i", "tr=f", "help", "mpr=i", "epi=i", "roi=s", "roilist=s", "roinamelist=s", "stackcheck", "display", "bold=s", "bc", "mask=s", "fc", "thresh=f", "near", "rminter","T1target=s","T2target=s", "spmpath=s", "clean", "smooth=f", "dicoms=s", "nounpack")};
+if (! $errorval){print "EXITING..."; exit};
+
+if ($options{id}){$sid = $options{id};}
+
+if ($options{mask}) {$mskimg = $options{mask};}
+if ($options{thresh}) {$threshval = $options{thresh};}
+my $bcfast = "xcorr.sh -s $sid -thresh $threshval -mask $mskimg";
+if ($options{near}) {$bcfast = "xcorr.sh -s $sid -thresh $threshval -mask $mskimg -weight";}
+if ($cluster == 1) {$bcfast = "xcorr.sh -s $sid -thresh $threshval -mask $mskimg -cluster";}
+if ($options{near} && $cluster == 1) {$bcfast = "xcorr.sh -s $sid -thresh $threshval -mask $mskimg -cluster -weight";}
+
+
+#chdir('./$sid');
+
+print "$bcfast\n";
+my $bcsig = system $bcfast;
+if ($bcsig == 2) {my_sigint()};
+
+
+#Check bclist.txt in bc folder to check for outputs from whole brain correlation
+
+
+chdir("$sid/bc");
+open(FILE,"${sid}_bc.txt" || die "Error: cannot open file '${sid}_bc.txt'");
+
+while(<FILE>){
+#print $_; # echo line read
+  my $line = $_;
+  chomp ($line);
+  if (-e $line) {print "FOUND: $line\n";}
+
+}
+close(FILE);
+if (-e "${sid}_bc.txt") {`rm ${sid}_bc.txt`};
+chdir("../../");
+
+print "End Time: ";
