@@ -220,7 +220,7 @@ fi
 #########################################################
 
 if [[ $NUMSUBJECTFILES -eq 2 ]]; then
-    echo "Processing GLM -- did you know GLM stands for gangsta lobster machine?"
+    echo "making glm stuffs, mkay?"
     FSGD="/tmp/$$.fsgd"
 
     for roi in $ROInames; do
@@ -242,13 +242,13 @@ if [[ $NUMSUBJECTFILES -eq 2 ]]; then
 
 	    # group average (this must run properly in order to continue)
 	    if [ "$GROUPAVG" != "" ]; then
-		/cluster/animal/scripts/NRG-fc/functions/fc_map_combine "${SUBJECTGROUPS[x]}" "$ROIs" "$ROInames" $GRPNAME $SMOOTH_HALF_F $grp;
+		/cluster/animal/users/mhollen/scripts/fc_map_combine "${SUBJECTGROUPS[x]}" "$ROIs" "$ROInames" $GRPNAME $SMOOTH_HALF_F $grp;
     	    fi
 
 	    # file list for each group
 	    if [ -e $file ]; then
 		# TODO: if we want to, we could also add this, which would correlate subgroup with measurements...
-		#/cluster/animal/scripts/NRG-fc/functions/fc_map_meas $file $roi $outdir "$SUBJECTS" $MEASFILE
+		#/cluster/animal/users/mhollen/scripts/fc_map_meas $file $roi $outdir "$SUBJECTS" $MEASFILE
 		filelist="$filelist $file"
 	    else
 		echo "Error: cannot find $file (should have been created by fc_map_combine"; exit 1;
@@ -279,7 +279,7 @@ if [[ "$MEASFILE" != "" ]]; then
     for roi in $ROInames; do
     	file=$outdir/N${nsubs}_zfrm_${roi}.lst
     	if [ -r $file ]; then
-	    /cluster/animal/scripts/NRG-fc/functions/fc_map_meas $file $roi $outdir "$SUBJECTS" $MEASFILE
+	    /cluster/animal/users/mhollen/scripts/fc_map_meas $file $roi $outdir "$SUBJECTS" $MEASFILE
 	else
 	    echo "Error: cannot find $outdir/N${nsubs}_zfrm_${roi}.lst. Cannot calculate behavioral correlation"
 	fi
@@ -291,5 +291,5 @@ if [ "$GROUPBIN" != "" ]; then
     echo "***************************"
     echo "Create binary group map...";
     echo "***************************"
-    /cluster/animal/scripts/NRG-fc/functions/fc_map_combine_bin "$SUBJECTS" "$ROIs" "$ROInames" $THRESH "$GRPNAME" $SMOOTH_HALF_F;
+    /cluster/animal/users/mhollen/scripts/fc_map_combine_bin "$SUBJECTS" "$ROIs" "$ROInames" $THRESH "$GRPNAME" $SMOOTH_HALF_F;
 fi
