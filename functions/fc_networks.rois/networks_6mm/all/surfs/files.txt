@@ -1,0 +1,7 @@
+default_mode.lst.mgh
+dorsal_attention.lst.mgh
+executive_control.lst.mgh
+language.lst.mgh
+primary_motor.lst.mgh
+primary_visual.lst.mgh
+salience.lst.mgh

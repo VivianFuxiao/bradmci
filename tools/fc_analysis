@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # source matlab
-source /autofs/cluster/animal/users/stepanov/scripts/NRG-fc/extras/matlab_74
+source /autofs/cluster/animal/scripts/matlab/matlab_74
 
 #
 # For each subject, extracts time courses for each run
@@ -112,7 +112,7 @@ echo ""
 
 function extract {
     n=1;
-    comm="addpath('/cluster/animal/users/mhollen/scripts/matlab/'); all=[]; "
+    comm="addpath('/cluster/animal/scripts/matlab/'); all=[]; "
     
     mkdir -p ${resultsdir}/${AL}
     mkdir -p ${resultsdir}/${AL}/timecourses
@@ -127,7 +127,7 @@ function extract {
 	### CHANGES FOR 1.2 MADE BELOW ###
 	## concatenate the timecourses.... UGH, WHY DID I NOT DO THIS BEFORE?!? I surprise myself with my stupidity
 	
-	ppstr=$(/cluster/animal/users/mhollen/scripts/fc_ppstr $subject)
+	ppstr=$(/cluster/animal/scripts/NRG-fc/functions/fc_ppstr $subject)
 	RUNLISTtxt=${subject}/fcMRI/${subject}_${ppstr}_g${SMOOTH_HALF_F}_bpss_resid.txt
 
 	if [ "$RUNLISTFILE" != "" ]; then
@@ -240,7 +240,7 @@ extract;
 
 if [ -e ${resultsdir}/${AL}/ ]; then
     cd ${resultsdir}/${AL}/;
-    /cluster/animal/users/mhollen/scripts/flatten_matrices "$SUBJECTS" "$ROINAMES" "$(basename ${AL})"
+    /cluster/animal/scripts/NRG-fc/functions/flatten_matrices "$SUBJECTS" "$ROINAMES" "$(basename ${AL})"
 fi
 
 echo "Finished!"

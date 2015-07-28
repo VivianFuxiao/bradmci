@@ -1,0 +1,15 @@
+#!/bin/bash
+
+f="$1/scripts/${1}.params"
+
+if [ $# -eq 0 ]; then
+    exit 1
+elif [ ! -e "$f" ]; then
+    exit 1
+else
+    ppstr=$(cat $1/scripts/${1}.params | grep ^"set ppstr" | xargs | cut -d'=' -f2 | xargs)
+    if [ "$ppstr" == "" ]; then
+    	exit 1
+    fi
+    echo $ppstr
+fi

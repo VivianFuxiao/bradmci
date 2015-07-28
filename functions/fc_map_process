@@ -1,0 +1,225 @@
+#!/bin/csh
+# $Header: /cluster/animal/users/mhollen/scripts/fc_map_process,v 1.3 2010/04/20 16:50:34 mhollen Exp $
+# $Log: fc_map_process,v $
+# Revision 1.3  2010/04/20 16:50:34  mhollen
+# too many updates to keep track of
+#
+# Revision 1.2  2010/03/23 23:31:17  mhollen
+# Added timepoint frames as input argument.
+#
+# Revision 1.1  2010/03/04 19:47:25  mhollen
+# added ROIcreate, fc_map*, and vol2surf
+#
+# small updates to fc_analysis and fcfast
+#
+set idstr = '$Id: fc_map_process,v 1.3 2010/04/20 16:50:34 mhollen Exp $'
+
+########################################################################################################
+##  This program computes a timecourse from a seed region and correlates this ROI with all other voxels
+########################################################################################################
+ROI:
+#set echo 
+set subjects = ($1)
+set wrkdir = $cwd
+set region = ($2) 
+set regname = ($3)
+set regnumber = ${#region}
+set format = "0x$4+"
+set smooth = "$6"
+set runs = ($7)
+
+if (${#runs} != 0) then
+# We're processing each run separately!
+# AND ONLY ONE SUBJECT AT A TIME!!!!!!!
+    set subject = $subjects
+    pushd $wrkdir/$subject
+    source scripts/$subject".params"
+    if (! -e fcMRI_ANALYSIS) mkdir fcMRI_ANALYSIS
+    @ k = 1
+    while ($k <= $regnumber)
+	echo $k
+	echo "now running fcMRI for all rest runs for $subject"
+	pushd $wrkdir/$subject/fcMRI
+	    foreach run ($runs)
+		set lst = $subject"_bld"$run"_"$regname[$k]"_g"${smooth}".dat"
+		echo $lst
+		
+		set file = $subject"_"$ppstr"_g${smooth}_bpss_resid.txt"
+		set file2 = $subject"_bld"$run"_"$ppstr"_g${smooth}_bpss_resid"
+		set runfile = `cat $file | grep bld$run`
+		set lst2 = $subject"_bld"${run}"_"$ppstr"_g${smooth}_bpss_resid.txt"
+
+		if ( "$8" != "" ) then
+		    if ( -e ../fcMRI_ANALYSIS/`whoami`/$5/$file2"_"$regname[$k]".nii.gz" ) then
+		    	echo "*** using previous fcMRI map; subject: $subject. BOLD run: $run. ***"
+		    	continue;
+		    endif
+		endif
+		
+		if (-e $lst) /bin/rm $lst; touch $lst	
+		
+		echo "run: $run"
+		echo "runfile: $runfile"
+		echo "$runfile" > $lst2
+		#set file2 = $runfile
+		if ( ! -e $runfile".nii.gz" ) then
+		    echo "Error: cannot find file $runfile.nii.gz"
+		    exit
+		else
+		    set tp=`fslnvols $runfile".nii.gz" `
+		    set format_real="0x$tp+"
+		endif
+
+		echo ""
+		echo "using: $runfile"
+		echo "subject: ${subject}     run: $run       format: ${format_real}"
+
+		
+		@ n = 1
+		while ($n < 4)
+		
+    	    	    # Retry actmapf_nifti at least one more time before exiting...
+		    # (that's really all it takes! ... maybe) god damn you actmapf_nifti!
+		    qnt_nifti -s -list $lst2 $region[$k] | awk '$1 !~/#/ {print $2}' > $lst
+		    actmapf_nifti -zu $format_real -list $lst2 -a$regname[$k] -w$lst
+		    
+		    var_nifti -s -f$format_real -list $lst2
+    	    	    
+		    if ( -e $file2"_"$regname[$k]".nii.gz" ) then
+		    	if ( -e $file2"_sd1.nii.gz" ) then
+		    	    @ n = 5
+		    	    continue
+			endif
+		    endif
+		    echo "********"
+		    echo "Could not find ${file2}_$regname[$k].nii.gz. Trying actmapf_nifti again..."
+		    @ n++
+		end
+
+		imgopr_nifti -r$file2"_"$regname[$k]"_corcoef" $file2"_"$regname[$k] $file2"_sd1.nii.gz"
+
+		if (! -e $file2"_"$regname[$k]"_corcoef.nii.gz" ) then
+		    echo ""
+		    echo "******************************"
+		    echo "******************************"
+		    echo "Error: file cannot be found: ${file2}_"$regname[$k]"_corcoef.nii.gz. Something must've happened during imgopr_nifti"
+		    echo "******************************"
+		    echo "******************************"
+		    echo ""
+		    # god, why?
+		    exit
+		endif
+
+		rho2z_nifti $file2"_"$regname[$k]"_corcoef"
+		rm $file2"_"$regname[$k]"_corcoef.nii.gz"
+		rm $file2"_"$regname[$k]".nii.gz"
+		mkdir -p ../fcMRI_ANALYSIS/`whoami`/$5
+		mv $file2"_"$regname[$k]"_corcoef_zfrm.nii.gz" ../fcMRI_ANALYSIS/`whoami`/$5
+	    end
+	popd
+	@ k++
+    end
+    popd
+    
+    
+else
+# We're processing all rest runs at once (original)
+
+    foreach k ($subjects)
+	pushd $wrkdir/$k
+	source scripts/$k".params"
+	echo $subject
+	if (! -e fcMRI_ANALYSIS) mkdir fcMRI_ANALYSIS
+	@ k = 1
+	    while ($k <= $regnumber)
+		echo $k
+		echo "now running fcMRI for all rest runs"
+		pushd $wrkdir/$subject/fcMRI
+		set lst = $subject"_"$regname[$k]"_g"${smooth}".dat"
+		if (-e $lst) /bin/rm $lst; touch $lst	
+		set file = $subject"_"$ppstr"_g${smooth}_bpss_resid.txt"
+		set file2 = $subject"_"$ppstr"_g${smooth}_bpss_resid"
+		set format_real = ''
+    	    	@ runcount = 0
+		foreach run (`cat $file | xargs`)
+		    if ( ! -e $run".nii.gz" ) then
+		        echo "Error: cannot find file $run.nii.gz"
+			exit
+		    else
+		        set tp=`fslnvols $run".nii.gz" `
+		        set format_real=$format_real"0x$tp+"
+		    endif
+		    @ runcount++
+		end
+		
+		if ( ! $runcount ) then
+		    echo "Error: no runs found within $file"
+		    exit
+		endif
+		
+		echo ""
+		echo "files:"
+		cat $file
+
+		set actmapf = "true"
+
+		@ actmapfattempts = 0
+		
+		while ("$actmapf" == "true")
+    	    	    # Retry actmapf_nifti at least one more time before exiting...
+		    # (that's really all it takes!?)
+		    echo "subject: ${subject}      format: ${format_real}"
+		    qnt_nifti -s -list $file $region[$k] | awk '$1 !~/#/ {print $2}' > $lst
+		    actmapf_nifti -zu $format_real -list $file -a$regname[$k] -w$lst
+    	    	    
+		    var_nifti -s -f$format_real -list $file
+		    
+		    @ actmapfattempts++
+		    
+		    set actmapf = "false"
+		    
+		    if (! -e $file2"_sd1.nii.gz" ) then
+			echo "Error: file cannot be found: ${file2}_sd1.nii.gz.Something must've happened during var_nifti."
+			set actmapf = "true"
+		    endif
+
+		    if (! -e $file2"_"$regname[$k]".nii.gz" ) then
+			echo "Error: file cannot be found: ${file2}_$regname[$k]. Something must've happened during actmapf_nifti."
+			set actmapf = "true"
+		    endif
+		    
+		    if ( $actmapfattempts > 4 ) then
+			set actmapf = "false"
+			echo "actmapf_nifti has been attempted multiple times without success. There must be a bigger problem. FIGURE IT OUT."
+	    	    	exit 1
+	    	    endif
+		end
+		
+		imgopr_nifti -r$file2"_"$regname[$k]"_corcoef" $file2"_"$regname[$k] $file2"_sd1"
+		
+		@ actmapfattempts = 0
+		while (! -e $file2"_"$regname[$k]"_corcoef.nii.gz" )
+		    echo "Error: file cannot be found: ${file2}_"$regname[$k]"_corcoef.nii.gz. Trying imgopr_nifti again..."
+		    imgopr_nifti -r$file2"_"$regname[$k]"_corcoef" $file2"_"$regname[$k] $file2"_sd1"
+		    @ actmapfattempts++
+		    if ( $actmapfattempts > 4 ) then
+		    	echo "Too many imgopr_nifti attempts. Giving up!"
+			exit 1 
+		    endif
+		end
+		
+		rho2z_nifti $file2"_"$regname[$k]"_corcoef"
+		rm $file2"_"$regname[$k]"_corcoef.nii.gz"
+		rm $file2"_"$regname[$k]".nii.gz"
+		mkdir -p ../fcMRI_ANALYSIS/`whoami`/$5
+		mv $file2"_"$regname[$k]"_corcoef_zfrm.nii.gz" ../fcMRI_ANALYSIS/`whoami`/$5
+		popd
+		@ k++
+	    end
+	popd
+    end
+
+endif
+
+
+exit

@@ -1,0 +1,68 @@
+#!/bin/csh
+# $Header: /cluster/animal/users/mhollen/scripts/fc_map_combine,v 1.4 2011/03/21 14:35:26 mhollen Exp $
+# $Log: fc_map_combine,v $
+# Revision 1.4  2011/03/21 14:35:26  mhollen
+# all the changes that have occurred since... oh god -- a long time.
+#
+# Revision 1.3  2010/04/20 16:50:34  mhollen
+# too many updates to keep track of
+#
+# Revision 1.2  2010/03/08 22:07:21  mhollen
+# i forget what i changed.
+#
+# Revision 1.1  2010/03/04 19:47:25  mhollen
+# added ROIcreate, fc_map*, and vol2surf
+#
+# small updates to fc_analysis and fcfast
+#
+set idstr = '$Id: fc_map_combine,v 1.4 2011/03/21 14:35:26 mhollen Exp $'
+
+##########################################
+# Combining maps from individual subjects
+##########################################
+
+ROI:
+set subjects = ($1)
+set wrkdir = $cwd
+set region = ($2) 
+set regname = ($3)
+set grpname = $4
+set regnumber = ${#region}
+set smooth = $5
+set postfix = $6
+
+echo "combining maps from individual subjects...";
+
+if ( $postfix == "" ) then
+    set rdir = $wrkdir/GROUP_STATS/`whoami`/FCMAP/${grpname}
+else
+    set rdir = $wrkdir/GROUP_STATS/`whoami`/FCMAP/${grpname}_$postfix
+endif
+
+mkdir -p $rdir
+
+@ k = 1
+while ($k <= $regnumber)
+    pushd $rdir
+	set lst = "N"${#subjects}"_zfrm_"$regname[$k].lst
+	if (-e $lst) /bin/rm $lst; touch $lst
+	echo "begin making image average expectation for $regname[$k]"
+	foreach subject ($subjects)
+	    source /$wrkdir/$subject/scripts/$subject.params
+	    set srcdir = $wrkdir/$subject/fcMRI_ANALYSIS/`whoami`/$grpname
+	    set file = $srcdir/$subject"_"$ppstr"_g${smooth}_bpss_resid_"$regname[$k]"_corcoef_zfrm".nii.gz
+	    if ( ! -e $file ) then
+		echo "Error: no file $file . Make sure it was generated properly using -c"
+		exit
+	    endif
+	    echo "$file" >> $lst
+	end
+	set outfile = "N${#subjects}_$regname[$k]_g${smooth}_zfrm_avg"
+	echo "imgopr_nifti -e$outfile -l$lst"
+	imgopr_nifti -e$outfile -l$lst  #add -u?
+	rho2z_nifti $outfile -r
+    popd      
+@ k++
+end
+exit
+

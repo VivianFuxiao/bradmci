@@ -21,7 +21,7 @@ function usage {
    echo "  -R <file>  ROI file"
    echo "  -N <name>  ROI name"
    echo ""
-   echo "Example: ./fc_map -s my_subject_list.txt -r ../data/ROIs/ROIs.lst -n ../data/ROIs/ROIs_names.lst"
+   echo "Example: ./fc_map -s my_subject_list.txt -r ../data/ROIs/ROIs.lst -n ../data/ROIs/ROIs_names.lst -G my_analysis"
    echo ""
    echo "MORE OPTIONS:"
    echo "  -i         Analyze each run individually "
@@ -30,8 +30,7 @@ function usage {
    #echo "  -T <val>   Time points (after preprocessing)"
    #echo "  -O <dir>   Group output directory (default ./GROUP_STATS/<user>/<group name>)"
    #echo "  -o <dir>   individual output directory (default ./<subject>/<group name>)"
-   echo "  -c         Create individual maps"
-   echo "               (default if no action specified)"
+   echo "  -c         Create individual maps (default)"
    echo "  -g         Create a group average map"
    echo "  -G <name>  Group name, default 'FC'"
    echo "               Note: This is also used to sort individual maps,"
@@ -137,12 +136,12 @@ if [ "$SINGLEMAPS" !=  "" ]; then
 	    for run in $runs; do run=$(basename $run); t="${t}${run} "; done ;
 	    t=$(echo $t)
 	    echo "runs: $t"
-	    echo "/cluster/animal/users/mhollen/scripts/fc_map_process \"$subject\" \"$ROIs\" \"$ROInames\" $FRAMES \"$GRPNAME\" $SMOOTH_HALF_F \"$t\" TRUE"
-	    /cluster/animal/users/mhollen/scripts/fc_map_process "$subject" "$ROIs" "$ROInames" $FRAMES "$GRPNAME" $SMOOTH_HALF_F "$t" TRUE
+	    echo "/cluster/animal/scripts/NRG-fc/functions/fc_map_process \"$subject\" \"$ROIs\" \"$ROInames\" $FRAMES \"$GRPNAME\" $SMOOTH_HALF_F \"$t\" TRUE"
+	    /cluster/animal/scripts/NRG-fc/functions/fc_map_process "$subject" "$ROIs" "$ROInames" $FRAMES "$GRPNAME" $SMOOTH_HALF_F "$t" TRUE
 	done
     else
-    	echo "/cluster/animal/users/mhollen/scripts/fc_map_process \"$SUBJECTS\" \"$ROIs\" \"$ROInames\" $FRAMES \"$GRPNAME\" $SMOOTH_HALF_F;"
-    	/cluster/animal/users/mhollen/scripts/fc_map_process "$SUBJECTS" "$ROIs" "$ROInames" $FRAMES "$GRPNAME" $SMOOTH_HALF_F;
+    	echo "/cluster/animal/scripts/NRG-fc/functions/fc_map_process \"$SUBJECTS\" \"$ROIs\" \"$ROInames\" $FRAMES \"$GRPNAME\" $SMOOTH_HALF_F;"
+    	/cluster/animal/scripts/NRG-fc/functions/fc_map_process "$SUBJECTS" "$ROIs" "$ROInames" $FRAMES "$GRPNAME" $SMOOTH_HALF_F;
     fi
 fi
 
@@ -152,10 +151,10 @@ if [ "$GROUPAVG" != "" ]; then
     echo "Creating group average map...";
     echo "***************************"
     if [ "$SEPARATE" != "" ]; then
-    	/cluster/animal/users/mhollen/scripts/dev/fc_map_combine "$SUBJECTS" "$ROIs" "$ROInames" $GRPNAME $SMOOTH_HALF_F TRUE $RUNFILE;
+    	/cluster/animal/scripts/NRG-fc/tools/fc_map_combine "$SUBJECTS" "$ROIs" "$ROInames" $GRPNAME $SMOOTH_HALF_F TRUE $RUNFILE;
     else
-    	echo "/cluster/animal/users/mhollen/scripts/fc_map_combine "$SUBJECTS" "$ROIs" "$ROInames" $GRPNAME $SMOOTH_HALF_F;"
-    	/cluster/animal/users/mhollen/scripts/fc_map_combine "$SUBJECTS" "$ROIs" "$ROInames" $GRPNAME $SMOOTH_HALF_F;
+    	echo "/cluster/animal/scripts/NRG-fc/tools/fc_map_combine "$SUBJECTS" "$ROIs" "$ROInames" $GRPNAME $SMOOTH_HALF_F;"
+    	/cluster/animal/scripts/NRG-fc/tools/fc_map_combine "$SUBJECTS" "$ROIs" "$ROInames" $GRPNAME $SMOOTH_HALF_F;
     fi
 fi
 
@@ -163,5 +162,5 @@ if [ "$GROUPBIN" != "" ]; then
     echo "***************************"
     echo "Create binary group map...";
     echo "***************************"
-    /cluster/animal/users/mhollen/scripts/fc_map_combine_bin "$SUBJECTS" "$ROIs" "$ROInames" $THRESH "$GRPNAME" $SMOOTH_HALF_F;
+    /cluster/animal/scripts/NRG-fc/tools/fc_map_combine_bin "$SUBJECTS" "$ROIs" "$ROInames" $THRESH "$GRPNAME" $SMOOTH_HALF_F;
 fi

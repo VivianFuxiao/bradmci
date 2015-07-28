@@ -1,0 +1,294 @@
+#!/bin/bash
+
+function usage {
+   echo "Generate seeded FC maps"
+   echo ""
+   echo "REQUIRED:"
+   echo "  -s <file>  File containing list of subjects"
+   echo "             (use multiple to compare groups)"
+   echo "  -r <file>  File containing list of ROI files"
+   echo "  -n <file>  File containing list of ROI names"
+   echo ""
+   echo "  OR"
+   echo "  -S <subj>  Subject"
+   echo "  -R <file>  ROI file"
+   echo "  -N <name>  ROI name"
+   echo ""
+   echo "OPTIONS:"
+   echo "  -x         Skip FC map (individual). Use with -m"
+   echo "  -X         Skip FC map if does not exist (individual). Use with -m"
+   echo "  -v         Skip FC map (group). Use with -m"
+   echo "  -i         Process each run individually. Each run will have a "
+   echo "              separate connectivity map"
+   echo "  -u <file>  Run file list (found in <subject>/<file>"
+   echo "  -m <file>  Covariates file (behavior/demographics). Should be organized as a "
+   echo "              comma separated file. For example:"
+   echo "                 SUBJECT, MEAS1, MEAS2"
+   echo "                 SUBJECT001, 5, 6"
+   echo "                 SUBJECT002, 7, 9"
+   echo "  -M <MEAS>  Field/column name from above (-m) that represents a measure"
+   echo "               to be correlated (multiples are okay). Each measure will be "
+   echo "               correlated with voxelwise connectivity strength for each seed."
+   echo "               if left out, all fields are used from -m file. "
+
+   echo "  -f         DO NOT project group results to fsaverage surface"
+   echo "  -q         DO NOT create screenshot of group results on fsaverage surface"
+
+   echo "  -c         Create individual maps"
+   echo "               (default if no action specified)"
+   echo "  -g         Create a group average map"
+   echo "  -G <name>  Group name, default 'FC'"
+   echo "               Note: This is also used to sort individual maps,"
+   echo "               so as to not overwrite other maps with similar ROI names."
+   echo "               Use a unique identifier for your analysis"
+   echo "  -b         Create a group binarized map"
+   echo "  -t <val>   Threshold (zfrm), default .2"
+   echo "  -k         Gaussian smoothing BOLD to process, default 6mm"
+   echo "  -p         Submit parallel jobs to cluster (will need to enter password) TODO"
+   echo "  -h         Display help"
+   echo ""
+}
+
+SUBJECTSfile=""
+ROIsfile=""
+ROInamesfile=""
+ROInames=""
+SUBJECTS=""
+ROIs=""
+THRESH="0.2"
+GRPNAME="$(whoami)_fc"
+FRAMES="72"
+SMOOTH=6;
+MEASFILE=""
+MEASCORRFIELDS=""
+SINGLEMAPS=1
+SKIPMAPS=0
+SKIPMAPSEXIST=0
+SKIPGROUP=0
+GROUPAVG=""
+BRAINMASK="/cluster/animal/users/mhollen/mni/MNI152lin_T1_2mm_brain_mask.nii.gz"
+
+while getopts "s:S:r:R:n:N:t:G:T:k:u:m:M:g b h c i x v X " o ; do
+    case $o in
+         s ) SUBJECTSfile="$SUBJECTSfile $OPTARG";;
+	 S ) SUBJECTS=$OPTARG;;
+	 r ) ROIsfile=$OPTARG;;
+	 R ) ROIs=$OPTARG;;
+	 n ) ROInamesfile=$OPTARG;;
+	 N ) ROInames=$OPTARG;;
+	 m ) MEASFILE=$OPTARG;;
+	 M ) MEASCORRFIELDS="${MEASCORRFIELDS}${OPTARG} ";;
+	 t ) THRESH=$OPTARG;;
+	 g ) GROUPAVG=1;;
+	 G ) GRPNAME=$OPTARG;;
+	 b ) GROUPBIN=1;;
+	 c ) SINGLEMAPS=1;;
+	 T ) FRAMES=$OPTARG;;
+	 k ) SMOOTH=$OPTARG;;
+	 i ) SEPARATE=1;;
+	 u ) RUNFILE=$OPTARG;;
+	 x ) SKIPMAPS=1;;
+	 X ) SKIPMAPSEXIST=1;;
+	 v ) SKIPGROUP=1;;
+	 h ) usage; exit 0;;
+	 * ) echo "Unkown argument "$o"." exit 1;
+    esac
+done
+
+if [ $# -eq 0 ]; then
+   usage; exit 0;
+fi
+
+NUMSUBJECTFILES=0
+if [ "$SUBJECTS" == "" ]; then
+    for f in $(echo $SUBJECTSfile); do
+	if [ ! -r $f ]; then
+	    echo "Error: cannot open subjects file: $f. (-h for help)"; exit 1;
+	fi
+    	SUBJECTS="$SUBJECTS $(cat $f | xargs)";
+	SUBJECTGROUPS[$NUMSUBJECTFILES]="$(cat $f | xargs)"
+	SUBJECTGROUPNAMES[$NUMSUBJECTFILES]="$(basename ${f})"
+	NUMSUBJECTFILES=$((NUMSUBJECTFILES+1));
+    done
+    if [ "$(echo $SUBJECTS | xargs)" == "" ]; then
+    	echo "Error: no subjects found."; exit 1;
+    fi
+    if [[ $NUMSUBJECTFILES -gt 2 ]];then
+    	echo "Error: sorry, only support for 2 subject groups in glm (as of right now)."; exit 1;
+    fi
+    echo "SUBJECTS: $SUBJECTS";
+    echo "  # SUBJECT GROUPS: $NUMSUBJECTFILES"
+fi
+
+if [ "$ROIs" == "" ]; then
+    if [ ! -r $ROIsfile ]; then
+	echo "Error: cannot open ROI file: $ROIsfile. (-h for help)"; exit 1;
+    fi
+    ROIs=$( cat $ROIsfile | xargs);
+    echo "ROIs: $ROIs";
+fi
+
+if [ "$ROInames" == "" ]; then
+    if [ ! -r $ROInamesfile ]; then
+	echo "Error: cannot open ROI names file: $ROInamesfile. (-h for help)"; exit 1;
+    fi
+    ROInames=$( cat $ROInamesfile | xargs);
+    echo "ROI labels: $ROInames";
+fi
+
+if [ $SKIPMAPS -eq 1 ]; then
+    echo " *** Skipping FC  *** "
+    SINGLEMAPS=""
+fi
+
+if [ $SKIPGROUP -eq 1 ]; then
+    echo " *** Skippping Group Map *** "
+    GROUPAVG=""
+fi
+
+if [[ $NUMSUBJECTFILES -gt 1 ]]; then
+    echo "SUBJECT GROUPS:"
+    for x in $(seq 0 $((${#SUBJECTGROUPS[*]} - 1))); do 
+	echo "* GROUP $x (${SUBJECTGROUPNAMES[x]}): ${SUBJECTGROUPS[x]}"
+    done
+fi
+
+[[ "$RUNFILE" != "" ]] && echo "Runfile: $RUNFILE";
+
+outdir="$(pwd)/GROUP_STATS/$(whoami)/FCMAP/${GRPNAME}"
+
+#####
+#echo "DEBUG MODE!"
+#exit 0;
+#####
+
+if [ $SMOOTH -eq 0 ]; then
+    SMOOTH_HALF_F=0
+else
+    SMOOTH_HALF_F=$( echo 'scale=15;(.4412712/('$SMOOTH'/100))' | bc  | awk '{print int($1)}' );
+fi
+
+if [ "$SINGLEMAPS" !=  "" ]; then
+    echo "***************************"
+    echo "Creating individual maps..."
+    echo "***************************"
+    if [ "$SEPARATE" != "" ]; then
+    	echo "creating individual maps for each run"
+    	for subject in $SUBJECTS; do
+	    if [ "$RUNFILE" != "" ]; then
+	        echo "+++"
+	    	if [ ! -r $subject/$RUNFILE ]; then
+		    echo "*** NO RUNFILE ($RUNFILE) FOR ${subject}. Skipping... ***"
+		    exit;
+		fi
+		
+	    	runs=$(cat $subject/$RUNFILE | xargs);
+	    else
+    	    	runs=$(ls -d $subject/bold/0* );
+	    fi
+	    t=""
+	    for run in $runs; do run=$(basename $run); t="${t}${run} "; done ;
+	    t=$(echo $t)
+	    echo "runs: $t"
+	    echo "/cluster/animal/users/mhollen/scripts/fc_map_process \"$subject\" \"$ROIs\" \"$ROInames\" $FRAMES \"$GRPNAME\" $SMOOTH_HALF_F \"$t\" TRUE"
+	    /cluster/animal/users/mhollen/scripts/fc_map_process "$subject" "$ROIs" "$ROInames" $FRAMES "$GRPNAME" $SMOOTH_HALF_F "$t" TRUE;
+	done
+    else
+    	echo "/cluster/animal/users/mhollen/scripts/fc_map_process \"$SUBJECTS\" \"$ROIs\" \"$ROInames\" $FRAMES \"$GRPNAME\" $SMOOTH_HALF_F;"
+    	/cluster/animal/users/mhollen/scripts/fc_map_process "$SUBJECTS" "$ROIs" "$ROInames" $FRAMES "$GRPNAME" $SMOOTH_HALF_F;
+    fi
+fi
+
+if [ "$GROUPAVG" != "" ]; then
+    echo "******************************"
+    echo "*   Creating group map(s)    *";
+    echo "******************************"
+
+    # combined subject groups (if multiple)
+    if [ "$SEPARATE" != "" ]; then
+    	/cluster/animal/users/mhollen/scripts/dev/fc_map_combine "$SUBJECTS" "$ROIs" "$ROInames" $GRPNAME $SMOOTH_HALF_F TRUE $RUNFILE;
+    else
+    	echo "/cluster/animal/users/mhollen/scripts/fc_map_combine "$SUBJECTS" "$ROIs" "$ROInames" $GRPNAME $SMOOTH_HALF_F;"
+    	/cluster/animal/users/mhollen/scripts/fc_map_combine "$SUBJECTS" "$ROIs" "$ROInames" $GRPNAME $SMOOTH_HALF_F;
+    fi
+fi
+    
+#########################################################
+# run glm, group1 vs. group2 
+# (only supports 2 groups right now -- fix this, dawg).
+#########################################################
+
+if [[ $NUMSUBJECTFILES -eq 2 ]]; then
+    echo "making glm stuffs, mkay?"
+    FSGD="/tmp/$$.fsgd"
+
+    for roi in $ROInames; do
+	filelist=""
+	echo "GroupDescriptorFile     1" > $FSGD
+	echo "Title FC_MAP_2GROUPS" >> $FSGD
+	echo "Class ${SUBJECTGROUPNAMES[0]}" >> $FSGD
+	echo "Class ${SUBJECTGROUPNAMES[1]}" >> $FSGD
+	# TODO: variables? HELLO?!
+    	for x in $(seq 0 $((${#SUBJECTGROUPS[*]} - 1))); do 
+	    n=$(echo ${SUBJECTGROUPS[x]} | wc -w)
+	    grp=${SUBJECTGROUPNAMES[x]}
+	    odir=${outdir}_$grp
+    	    file=$odir/N${n}_zfrm_${roi}.lst
+
+	    for subj in $(echo ${SUBJECTGROUPS[x]}); do
+		echo "Input $subj ${SUBJECTGROUPNAMES[x]}" >> $FSGD
+	    done
+
+	    # group average (this must run properly in order to continue)
+	    if [ "$GROUPAVG" != "" ]; then
+		/cluster/animal/users/mhollen/scripts/fc_map_combine "${SUBJECTGROUPS[x]}" "$ROIs" "$ROInames" $GRPNAME $SMOOTH_HALF_F $grp;
+    	    fi
+
+	    # file list for each group
+	    if [ -e $file ]; then
+		# TODO: if we want to, we could also add this, which would correlate subgroup with measurements...
+		#/cluster/animal/users/mhollen/scripts/fc_map_meas $file $roi $outdir "$SUBJECTS" $MEASFILE
+		filelist="$filelist $file"
+	    else
+		echo "Error: cannot find $file (should have been created by fc_map_combine"; exit 1;
+	    fi
+	done
+
+	# temp. 4d file
+	fslmerge -t /tmp/$$.nii.gz $(cat $filelist | xargs)
+
+	echo "************"
+	echo $FSGD
+	echo "************"
+
+	echo "1 -1" > /tmp/$roi.mat
+	glmresults="$outdir/${SUBJECTGROUPNAMES[0]}_vs_${SUBJECTGROUPNAMES[1]}"
+	mri_glmfit --y /tmp/$$.nii.gz --fsgd $FSGD doss --C /tmp/$roi.mat --glmdir $glmresults
+    	mri_mask $glmresults/$roi/sig.mgh $BRAINMASK $outdir/${roi}_zfrm_${SUBJECTGROUPNAMES[0]}_vs_${SUBJECTGROUPNAMES[1]}.sig.nii.gz
+	rm -f /tmp/$$.*
+    done
+fi
+#########################################################
+
+
+# Correlate connectivity maps with behavioral measures. 
+if [[ "$MEASFILE" != "" ]]; then
+    # check to see if group maps are available
+    nsubs=$(echo $SUBJECTS | wc -w)
+    for roi in $ROInames; do
+    	file=$outdir/N${nsubs}_zfrm_${roi}.lst
+    	if [ -r $file ]; then
+	    /cluster/animal/users/mhollen/scripts/fc_map_meas $file $roi $outdir "$SUBJECTS" $MEASFILE
+	else
+	    echo "Error: cannot find $outdir/N${nsubs}_zfrm_${roi}.lst. Cannot calculate behavioral correlation"
+	fi
+    done
+fi
+
+
+if [ "$GROUPBIN" != "" ]; then
+    echo "***************************"
+    echo "Create binary group map...";
+    echo "***************************"
+    /cluster/animal/users/mhollen/scripts/fc_map_combine_bin "$SUBJECTS" "$ROIs" "$ROInames" $THRESH "$GRPNAME" $SMOOTH_HALF_F;
+fi

@@ -1,0 +1,69 @@
+#!/bin/bash
+
+function usage {
+   echo "Flattens ROI-ROI functional connectivity matrix of all subjects"
+   echo "to be used in statistical analysis."
+   echo ""
+   echo "$(basename $0) \"<subjects>\" \"<ROI names>\" \"<analysis name>\""
+   echo ""
+}
+
+
+
+if [ $# -ne 3 ]; then
+   usage; exit 0;
+fi
+
+#if [ -r $1 ]; then
+#    SUBJECTS=$(cat $1 | xargs)
+#else
+#    echo "Cannot open file $1"
+#fi
+
+#if [ -r $2 ]; then
+#    ROINAMES=$(cat $2 | xargs)
+#else
+#    echo "Cannot open file $2"
+#fi
+
+SUBJECTS=$1
+ROINAMES=$2
+ANALYSIS=$3
+
+ALLFILE=${ANALYSIS}_collapsed.dat
+ALLLABELS=${ANALYSIS}_collapsed_labels.dat
+
+[ -r $ALLFILE ] && rm $ALLFILE
+[ -r $ALLLABELS ] && rm $ALLLABELS
+
+total=1
+for subj in $SUBJECTS; do 
+    vals=$(cat ${subj}.dat | xargs);
+    total=$(cat ${subj}.dat | wc -l );
+    [ -r ${subj}_collapsed.dat ] && rm ${subj}_collapsed.dat
+    
+    for x in $(seq 2 $total); do 
+    	for y in $(seq 1 $((x-1))); do 
+	    x1=$((x-1)); 
+	    b=$(echo "${x1}*${total}+${y}" | bc);
+	    echo $vals | awk -v N=${b} '{print $N}' >> ${subj}_collapsed.dat; 
+	done
+    done
+    cat ${subj}_collapsed.dat | xargs >> $ALLFILE;
+done
+
+
+for x in $(seq 2 ${total}); do
+    for y in $(seq 1 $((x-1))); do
+    	R1=$(echo $ROINAMES | awk -v N=$x '{print $N}')
+	R2=$(echo $ROINAMES | awk -v N=$y '{print $N}')
+	label="${R1}_${R2}"
+	label=${label//\-/\_}
+	echo $label >> $ALLLABELS;
+    done
+done
+
+# make excel-friendly csv files!
+echo "SUBJECT, $(cat $ALLLABELS | xargs | sed 's/\s/,/g')" > ${ANALYSIS}.csv
+echo $SUBJECTS | sed 's/\s/\n/g' > /tmp/${ANALYSIS}_subjects
+paste /tmp/${ANALYSIS}_subjects ${ALLFILE} | sed 's/\s/,/g' >> ${ANALYSIS}.csv
