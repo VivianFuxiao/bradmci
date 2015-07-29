@@ -1,0 +1,441 @@
+#!/bin/bash
+
+# useful functions
+source /cluster/animal/scripts/matlab/matlab_74
+
+function usage {
+   echo "Will calculate modulation of rs-fMRI ('after' - 'before')"
+   echo ""
+   echo "REQUIRED:"
+   echo "  -s <file>  File containing list of subjects"
+   echo "  -r <file>  File containing list of ROI files"
+   echo "  -n <file>  File containing list of ROI names"
+   echo "  OR"
+   echo "  -S <subj>  Subject"
+   echo "  -R <file>  ROI file"
+   echo "  -N <name>  ROI name"
+   echo "  AND "
+   echo "  -1 <file>  Run list file, 'before'."
+   echo "             Found in <subject>/<file>"
+   echo "  -2 <file>  Same as above, for 'after'."
+   echo "             Found in <subject>/<file>"
+   echo "  -l <name>  Analysis name/prefix, e.x. 'Pain'"
+   echo ""
+   echo " OPTIONAL"
+   echo "  -o <dir>   Output directory, default ./GROUP_STATS/<user>/FCMOD/<analysis name>"
+   echo "  -m         Generate modulation maps (using GLM contrast)"
+   echo "  -x         Skip ROI-ROI analysis (only use with '-m')"
+   echo "  -M <meas>  Correlate difference (post-pre) with subject measure -- found in <subject>/<meas>"
+   echo "  -q         Skip ROI-ROI analysis, but still calculate modulation on ROI-ROI"
+   echo "  -K         Skip fc_map "
+   echo "  -P         Do not create scatter plots (used with -M)"
+   echo "  -e         Force timecourse extraction"
+   echo ""
+}
+
+
+SUBJECTSfile=""
+ROIsfile=""
+ROInamesfile=""
+NAME="$(whoami)_fc_mod"
+FCMAPDIR="$(pwd)/GROUP_STATS/$(whoami)/FCMAP"
+FCDIR="$(pwd)/GROUP_STATS/$(whoami)/FC"
+MAKEMAPS=""
+SKIPROI=""
+SKIPROIFC=""
+SCATTERPLOTS=1 # default is to make them
+
+while getopts "s:S:r:R:n:N:1:2:l:o:M: x q m h e K P" o ; do
+    case $o in
+         s ) SUBJECTSfile=$OPTARG;;
+	 S ) SUBJECTS=$OPTARG;;
+	 r ) ROIsfile=$OPTARG;;
+	 R ) ROIs=$OPTARG;;
+	 n ) ROInamesfile=$OPTARG;;
+	 N ) ROInames=$OPTARG;;
+	 t ) THRESH=$OPTARG;;
+	 1 ) LISTFILE1=$OPTARG;;
+	 2 ) LISTFILE2=$OPTARG;;
+	 l ) NAME=$OPTARG;;
+	 m ) MAKEMAPS=1;;
+	 M ) MEASURECORR=$OPTARG;;
+	 o ) OUTDIR=$OPTARG;;
+	 q ) SKIPROIFC=1;;
+	 P ) SCATTERPLOTS=0;;
+	 x ) SKIPROI=1;;
+	 e ) EXTRACTTC=1;;
+	 K ) SKIPFCMAP=1;;
+	 h ) usage;
+	     exit 0;;
+    esac
+done
+
+if [ $# -eq 0 ]; then
+   usage; exit 0;
+fi
+
+if [ ! "$OUTDIR" ]; then
+    OUTDIR="$(pwd)/GROUP_STATS/$(whoami)/FCMOD/$NAME"
+fi
+
+if [ ! "$SUBJECTS" ]; then
+    if [ ! -r $SUBJECTSfile ]; then
+	echo "Error: cannot open subjects file: $SUBJECTSfile. (-h for help)"; exit;
+    fi
+    SUBJECTS=$( cat $SUBJECTSfile | xargs);
+    echo "SUBJECTS: $SUBJECTS";
+fi
+
+if [ ! "$ROIs" ]; then
+    if [ ! -r $ROIsfile ]; then
+	echo "Error: cannot open ROI file: $ROIsfile. (-h for help)"; exit;
+    fi
+    ROIs=$( cat $ROIsfile | xargs);
+    echo "ROIs: $ROIs";
+fi
+
+nROIs=$(echo $ROIs | wc -w);
+echo "# ROIs: $nROIs"
+
+if [ $nROIs -eq 1 ]; then
+    # can only do ROI-ROI analysis with more than one ROI!
+    SKIPROI=1;
+fi
+
+if [ ! "$LISTFILE1" ]; then
+    echo "Error: 'before' run list file required. (-h for help)."; exit 
+fi
+
+if [ ! "$LISTFILE2" ]; then
+    echo "Error: 'after' run list file required. (-h for help)."; exit 
+fi
+
+if [ ! "$ROInames" ]; then
+    if [ ! -r $ROInamesfile ]; then
+	echo "Error: cannot open ROI names file: $ROInamesfile. (-h for help)"; exit;
+    fi
+    ROInames=$( cat $ROInamesfile | xargs);
+    echo "ROI labels: $ROInames";
+fi
+
+for subject in $SUBJECTS; do
+    if [ ! -r $subject/$LISTFILE1 ]; then
+	echo "*** NO RUN LIST FILE ($LISTFILE1) FOR ${subject}. Should be located in ./$subject/<list file> ***"
+	exit;
+    fi
+    if [ ! -r $subject/$LISTFILE2 ]; then
+	echo "*** NO RUN LIST FILE ($LISTFILE2) FOR ${subject}. Should be located in ./$subject/<list file> ***"
+	exit;
+    fi
+done
+
+if [ $SCATTERPLOTS -eq 1 ]; then
+    SCATDIR=$OUTDIR/plots/
+    mkdir -p $SCATDIR
+fi
+
+mkdir -p $OUTDIR
+
+NSUBJECTS=$(echo $SUBJECTS | wc -w)
+
+if [ ! "${MEASURECORR}" == "" ]; then
+    MEASURENAME=$(basename ${MEASURECORR%%.*})
+fi
+
+# ROI-ROI CORRELATIONS
+if [ ! "$SKIPROI" ]; then
+    # before task
+    name="${NAME}_pre"
+    
+    if [ ! "$EXTRACTTC" ]; then 
+    	arg=""
+    else
+    	arg="-e"
+    fi
+    
+    if [ ! "$SKIPROIFC" ]; then
+    	echo "/cluster/animal/scripts/NRG-fc/tools/fc_analysis -i \"$SUBJECTS\" -r \"$ROIs\" -n \"$ROInames\" -u ${LISTFILE1} -l $name -m $arg"
+	/cluster/animal/scripts/NRG-fc/tools/fc_analysis -i "$SUBJECTS" -r "$ROIs" -n "$ROInames" -u ${LISTFILE1} -l $name -m $arg
+	cp $FCDIR/$name/${name}_collapsed*.dat $OUTDIR/
+	echo $(head $FCDIR/$name/${name}.csv -n 1 | sed 's/,/\_pre,/g') > $OUTDIR/${name}.csv
+	more +2 $FCDIR/$name/${name}.csv >> $OUTDIR/${name}.csv
+	cp $FCDIR/$name/${name}.png $OUTDIR/
+	cp $FCDIR/$name/${name}* $OUTDIR/
+    fi
+    
+    comm="addpath('/cluster/animal/scripts/matlab/'); preall = load('$OUTDIR/${name}.mat', 'all'); \n"
+
+    # after task
+    name="${NAME}_post"
+
+    if [ ! "$SKIPROIFC" ]; then
+    	echo "/cluster/animal/scripts/NRG-fc/tools/fc_analysis -i \"$SUBJECTS\" -r \"$ROIs\" -n \"$ROInames\" -u ${LISTFILE2} -l $name -m $arg"
+	/cluster/animal/scripts/NRG-fc/tools/fc_analysis -i "$SUBJECTS" -r "$ROIs" -n "$ROInames" -u ${LISTFILE2} -l $name -m $arg
+	cp $FCDIR/$name/${name}_collapsed*.dat $OUTDIR/
+	echo $(head $FCDIR/$name/${name}.csv -n 1 | sed 's/,/\_post,/g') > $OUTDIR/${name}.csv
+	more +2 $FCDIR/$name/${name}.csv >> $OUTDIR/${name}.csv
+	cp $FCDIR/$name/${name}.png $OUTDIR/
+	cp $FCDIR/$name/${name}* $OUTDIR/
+    fi
+
+    paste -d ',' $OUTDIR/${NAME}_pre.csv $OUTDIR/${NAME}_post.csv > $OUTDIR/${NAME}_pre_and_post.csv
+    
+    cat $OUTDIR/${NAME}_pre.csv > $OUTDIR/${NAME}_pre_and_post2.csv
+    echo "" >> $OUTDIR/${NAME}_pre_and_post2.csv
+    cat $OUTDIR/${NAME}_post.csv >> $OUTDIR/${NAME}_pre_and_post2.csv
+
+    
+    comm="${comm} postall = load('$OUTDIR/${name}.mat', 'all'); pre = preall.all; post = postall.all; \n"
+    comm="${comm} diffa=post-pre; diff = mean(diffa,3); diff(isnan(diff))=0; \n"
+    roistr=$(echo $ROInames | sed "s/\s/\' \'/g")
+    
+    measures=""
+    ### correlate with behavioral measures ###
+    if [ "$MEASURECORR" != ""  ]; then
+    	for s in $SUBJECTS; do
+    	    if [ ! -e ./$s/${MEASURECORR} ]; then
+		echo "Cannot find file $s/${MEASURECORR}"; exit; 
+	    fi
+	    meas=$(cat ./$s/${MEASURECORR});
+	    measures="${measures}${meas};"
+	done
+	comm="${comm} \n"
+	comm="${comm} roistr={'$roistr'};\n"
+	comm="${comm} meascorr_r = zeros([size(diffa,1) size(diffa,2)]); meascorr_p = meascorr_r; \n"
+	comm="${comm} for i=1:size(diffa,1), \n"
+	comm="${comm} 	for j=1:size(diffa,2), \n"
+	comm="${comm}	    if (i == j) \n"
+	comm="${comm}       	meascorr_r(i,j) = 0; meascorr_p(i,j) = 1; \n"
+	comm="${comm}	    else \n"
+	comm="${comm}       	[R, P] = corrcoef(reshape1d(diffa(i,j,:)), [${measures}]); \n"
+	comm="${comm}       	meascorr_r(i,j) = R(1,2); meascorr_p(i,j) = P(1,2); \n"
+	if [ $SCATTERPLOTS -eq 1 ]; then
+	comm="${comm}           if i > 1 && j < i \n "
+	comm="${comm}               currroi=char(strcat(roistr(i),'-',roistr(j))); \n"
+	comm="${comm} 	    	    scatplot = makescatter(reshape1d(diffa(i,j,:)),[${measures}],R(1,2),P(1,2),{'Change In Functional Connectivity';'(post-task Z - pre-task Z)'},'${MEASURENAME}',''); \n"
+	comm="${comm}       	    set(scatplot,'PaperPositionMode','auto'); print(scatplot,'-dpng',char(strcat('$SCATDIR',currroi,'_${MEASURENAME}','.png')));\n"
+	comm="${comm}           end \n"
+	fi
+	comm="${comm}	    end \n"
+	comm="${comm}	end \n"
+	comm="${comm} end \n"
+	comm="${comm} meascorr_r(isnan(meascorr_r))=0; \n"
+	comm="${comm} save $OUTDIR/${NAME}_${MEASURENAME}_corr.dat meascorr_r -ascii; save $OUTDIR/${NAME}_${MEASURENAME}_p.dat meascorr_p -ascii; \n"
+	comm="${comm} cfig = heatmatrix(meascorr_r, meascorr_p,roistr, '$NAME: Change In Connectivity Correlated With ${MEASURENAME}'); \n"
+	comm="${comm} saveas(cfig, '$OUTDIR/${NAME}_${MEASURENAME}_corr.png', 'png'); \n"
+    fi
+    
+    #comm="${comm} stderror = std(post-pre, [], 3)./$NSUBJECTS; save $OUTDIR/${NAME}_mod_diff_stderr.dat stderror -ascii; \n"
+    
+    comm="${comm} [h, p] = ttest(post,pre, [],[], 3);  \n"
+    #comm="${comm} save $OUTDIR/${NAME}_mod_diff.dat diff -ascii; "
+    #comm="${comm} save $OUTDIR/${NAME}_mod_sig.dat h -ascii; save $OUTDIR/${NAME}_mod_sig_p.dat p -ascii; \n" 
+    #comm="${comm} cfig = fcmatrix2(diff_sig, {'$roistr'}, '$NAME: significant modulation'); \n"
+    #comm="${comm} saveas(cfig, '$OUTDIR/${NAME}_mod_sig.png', 'png'); \n"
+    comm="${comm} cfig = heatmatrix(diff,p,{'$roistr'}, '$NAME: Change In Connectivity'); \n"
+    comm="${comm} saveas(cfig, '$OUTDIR/${NAME}_mod.png', 'png'); \n"
+    
+    cmdfile="$(whoami)$$.m"
+    echo -e $comm
+    echo -e $comm > $cmdfile
+    run_matlab -nosplash -nodesktop -nojvm -r "${cmdfile%%.m}; exit"
+    rm $cmdfile
+    
+fi
+
+
+# MODULATION (GLM) MAPS
+if [ "$MAKEMAPS" != "" ]; then
+
+    if [ "$SKIPFCMAP" == "" ]; then
+	# before
+	/cluster/animal/scripts/NRG-fc/tools/fc_map -S "$SUBJECTS" -R "$ROIs" -N "$ROInames" -i -u ${LISTFILE1} -G ${NAME}_pre
+	/cluster/animal/scripts/NRG-fc/tools/fc_map -S "$SUBJECTS" -R "$ROIs" -N "$ROInames" -i -u ${LISTFILE1} -G ${NAME}_pre -g
+
+	# after
+	/cluster/animal/scripts/NRG-fc/tools/fc_map -S "$SUBJECTS" -R "$ROIs" -N "$ROInames" -i -u ${LISTFILE2} -G ${NAME}_post
+	/cluster/animal/scripts/NRG-fc/tools/fc_map -S "$SUBJECTS" -R "$ROIs" -N "$ROInames" -i -u ${LISTFILE2} -G ${NAME}_post -g
+    fi
+    
+    MAPSDIR="$OUTDIR/maps"
+    mkdir -p $MAPSDIR
+    
+    FSGDDIR="$MAPSDIR/fsgd"
+    mkdir -p $MAPSDIR/fsgd/
+    CONSDIR="$MAPSDIR/contrast"
+    mkdir -p $MAPSDIR/contrast/
+    BIGDIR="$MAPSDIR/4d"
+    mkdir -p $MAPSDIR/4d/
+    
+    
+    
+    for r in $ROInames; do
+        cp $FCMAPDIR/${NAME}_pre/N${NSUBJECTS}_zfrm_${r}.lst $MAPSDIR/${NAME}_pre_${r}.lst
+	cp $FCMAPDIR/${NAME}_post/N${NSUBJECTS}_zfrm_${r}.lst $MAPSDIR/${NAME}_post_${r}.lst
+
+	TITLE="${NAME}_${r}"
+
+	FILES_BEFORE_STR="${NAME}_pre_${r}"
+	FILES_AFTER_STR="${NAME}_post_${r}"
+
+	FSGD="$FSGDDIR/$TITLE.fsgd"
+	FSGD2="$FSGDDIR/${TITLE}_${MEASURENAME}.fsgd"
+	FSGD3="$FSGDDIR/${TITLE}_${MEASURENAME}_${NSUBJECTS}groups.fsgd"
+	CONTRAST="$CONSDIR/${TITLE}_post_vs_pre.mat"
+	CONTRAST2="$CONSDIR/${TITLE}_post_vs_pre_${MEASURENAME}.mat"
+	
+	CONTRASTNAME="$(basename ${CONTRAST%%.*})"
+	CONTRASTNAME2="$(basename ${CONTRAST2%%.*})"
+
+	##############################################
+
+	d="$MAPSDIR/${TITLE}_volumes"
+	mkdir -p $d
+	for x in $SUBJECTS; do 
+    	    after=$(cat $MAPSDIR/${NAME}_post_${r}.lst | grep ${x}_bld | xargs);
+	    before=$(cat $MAPSDIR/${NAME}_pre_${r}.lst | grep ${x}_bld | xargs);
+	    echo "AFTER:   $after"
+	    echo "BEFORE:  $before"
+	    echo ""
+
+	    # average (if multiple before/after runs)
+	    if [ $(echo $after | wc -w) -gt 1 ]; then
+    		imgopr_nifti -e$d/${x}_${FILES_AFTER_STR}.nii.gz $after;
+	    else
+    		cp $after $d/${x}_${FILES_AFTER_STR}.nii.gz;
+	    fi
+
+	    if [ $(echo $before | wc -w) -gt 1 ]; then
+    		imgopr_nifti -e$d/${x}_${FILES_BEFORE_STR}.nii.gz $before;
+	    else
+    		cp $before $d/${x}_${FILES_BEFORE_STR}.nii.gz;
+	    fi
+	done
+
+	# make 4D files
+	cmd=""
+	fb=""
+	fa=""
+	for x in $SUBJECTS; do
+    	    cmd="$cmd ${d}/${x}_${FILES_BEFORE_STR}.nii.gz ${d}/${x}_${FILES_AFTER_STR}.nii.gz "
+	    fa="$fa ${d}/${x}_${FILES_AFTER_STR}.nii.gz "
+	    fb="$fb ${d}/${x}_${FILES_BEFORE_STR}.nii.gz "
+	done
+	
+	### Normal contrast / fsgd ###
+
+	echo "GroupDescriptorFile     1" > $FSGD
+	echo "Title $TITLE" >> $FSGD
+	echo -n "" > $CONTRAST
+	
+	for x in $SUBJECTS; do
+    	    echo "Class Class_${x}" >> $FSGD
+	    echo -n "0 " >> $CONTRAST
+	done
+
+	echo -n "1" >> $CONTRAST
+	echo "Variables 	    	before_after_task" >> $FSGD
+
+	for x in $SUBJECTS; do
+    	    for t in -1 1; do
+		echo "Input $x  Class_${x}	$t" >> $FSGD
+	    done
+	done
+	
+	
+	### Contrast / fsgd w/ behavioral measure (now trying DODS) ###
+
+	if [ "$MEASURECORR" != ""  ]; then
+	
+	    echo "fslmerge -t $BIGDIR/${TITLE}_before.nii.gz $fb"
+	    fslmerge -t $BIGDIR/${TITLE}_before.nii.gz $fb
+	    echo "fslmerge -t $BIGDIR/${TITLE}_after.nii.gz $fa"
+	    fslmerge -t $BIGDIR/${TITLE}_after.nii.gz $fa
+	    
+	    mris_calc -o $BIGDIR/${TITLE}_diff.nii.gz $BIGDIR/${TITLE}_after.nii.gz sub $BIGDIR/${TITLE}_before.nii.gz
+	
+	    echo "GroupDescriptorFile     1" > $FSGD2
+	    echo "Title ${TITLE}_${MEASURENAME}" >> $FSGD2
+	    
+	    echo "Class Main" >> $FSGD2
+	    echo "Variables 	     ${MEASURENAME}" >> $FSGD2
+	    
+	    # correlate with behavioral measure
+	    echo "0 1" > $CONTRAST2
+
+	    for x in $SUBJECTS; do
+		if [ ! -e ./$x/${MEASURECORR} ]; then
+		    echo "Cannot find file $x/${MEASURECORR}"; exit; 
+		fi
+		meas=$(cat ./$x/${MEASURECORR});
+		echo "Input $x  Main $meas" >> $FSGD2
+	    done
+	fi
+
+	
+	if [ "$MEASURECORR" != ""  ]; then
+	    echo "mri_glmfit --y $BIGDIR/${TITLE}_diff.nii.gz --allowsubjrep --fsgd $FSGD2 dods --C $CONTRAST2 --C $CONTRAST3 --glmdir $MAPSDIR/glm_vol2"
+	    mri_glmfit --y $BIGDIR/${TITLE}_diff.nii.gz --fsgd $FSGD2 dods --C $CONTRAST2  --glmdir $MAPSDIR/glm_vol2
+	    echo "mri_mask $MAPSDIR/glm_vol2/${CONTRASTNAME2}/sig.mgh /cluster/animal/scripts/mni/MNI152_T1_2mm_brain_mask_dil.nii.gz $MAPSDIR/${CONTRASTNAME2}.nii.gz"
+	    mri_mask $MAPSDIR/glm_vol2/${CONTRASTNAME2}/sig.mgh /cluster/animal/scripts/mni/MNI152_T1_2mm_brain_mask_dil.nii.gz $MAPSDIR/${CONTRASTNAME2}.nii.gz
+	    
+	    #mri_glmfit --y $BIGDIR/${TITLE}_diff.nii.gz --osgm --glmdir $MAPSDIR/glm_vol2
+	    #mri_mask $MAPSDIR/glm_vol2/osgm/sig.mgh /cluster/animal/users/mhollen/mni/MNI152_T1_2mm_brain_mask_dil.nii.gz $MAPSDIR/${CONTRASTNAME}_osgm.nii.gz
+	    
+	    #echo "mri_mask $MAPSDIR/glm_vol2/${CONTRASTNAME3}/sig.mgh /cluster/animal/users/mhollen/mni/MNI152_T1_2mm_brain_mask_dil.nii.gz $MAPSDIR/${CONTRASTNAME3}.nii.gz"
+	    #mri_mask $MAPSDIR/glm_vol2/${CONTRASTNAME3}/sig.mgh /cluster/animal/users/mhollen/mni/MNI152_T1_2mm_brain_mask_dil.nii.gz $MAPSDIR/${CONTRASTNAME3}.nii.gz
+	fi
+	
+	if [ "$MAKEMAPS" != "" ]; then
+	    echo "fslmerge -t ${TITLE}.nii.gz $cmd"
+	    fslmerge -t $BIGDIR/${TITLE}.nii.gz $cmd
+	    if [ -e $BIGDIR/${TITLE}.nii.gz ]; then
+		echo "mri_glmfit --y $BIGDIR/${TITLE}.nii.gz --allowsubjrep --fsgd $FSGD doss --C $CONTRAST --glmdir $MAPSDIR/glm_vol"
+		mri_glmfit --y $BIGDIR/${TITLE}.nii.gz --allowsubjrep --fsgd $FSGD doss --C $CONTRAST --glmdir $MAPSDIR/glm_vol
+		echo "mri_mask $MAPSDIR/glm_vol/${CONTRASTNAME}/sig.mgh /cluster/animal/scripts/mni/MNI152_T1_2mm_brain_mask_dil.nii.gz $MAPSDIR/${CONTRASTNAME}.nii.gz"
+		mri_mask $MAPSDIR/glm_vol/${CONTRASTNAME}/sig.mgh /cluster/animal/scripts/mni/MNI152_T1_2mm_brain_mask_dil.nii.gz $MAPSDIR/${CONTRASTNAME}.nii.gz
+	    fi
+	fi
+
+	
+	############ TEMP -- remove? ######################
+	# The below method for correlating behavioral measures might be defunct.
+	continue;
+	
+	if [ "$MEASURECORR" != ""  ]; then
+	    echo "fslmerge -t $BIGDIR/${TITLE}_before.nii.gz $fb"
+	    fslmerge -t $BIGDIR/${TITLE}_before.nii.gz $fb
+	    echo "fslmerge -t $BIGDIR/${TITLE}_after.nii.gz $fa"
+	    fslmerge -t $BIGDIR/${TITLE}_after.nii.gz $fa
+	    
+	    mris_calc -o $BIGDIR/${TITLE}_diff.nii.gz $BIGDIR/${TITLE}_after.nii.gz sub $BIGDIR/${TITLE}_before.nii.gz
+	    
+	    fslmaths $BIGDIR/${TITLE}_diff.nii.gz -Tstd $BIGDIR/${TITLE}_diff_std.nii.gz
+	    
+	    of=$BIGDIR/${r}_$(basename ${MEASURECORR%%.*})_corcoef
+	    
+	    mkdir $$;
+	    cp $MEASURECORR $$/
+	    cd $$
+	    
+	    
+	    actmapf_nifti -zu "0x${NSUBJECTS}+" $BIGDIR/${TITLE}_diff.nii.gz -avar -w$MEASURECORR
+	    imgopr_nifti -r$of ${TITLE}_diff_var $BIGDIR/${TITLE}_diff_std
+	    rho2z_nifti $of
+	    
+	    cp $of*.nii.gz ../
+	    
+	    cd ../; rm -r $$/ 
+	    
+	    ### 
+	fi
+	
+	rm -r $d
+	
+    done
+    rm -r $BIGDIR
+fi
+
+
+
+

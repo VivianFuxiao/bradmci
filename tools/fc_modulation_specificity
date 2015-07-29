@@ -1,0 +1,234 @@
+#!/bin/bash
+
+function usage {
+   echo "Will calculate specificity of modulation"
+   echo ""
+   echo "REQUIRED:"
+   echo "  -s <file>  File containing list of subjects"
+   echo "  -n <file>  File containing list of ROI names"
+   echo "  OR"
+   echo "  -S <subj>  Subject"
+   echo "  -N <name>  ROI name"
+   echo "  AND "
+   echo "  -1 <file>  Mod directory for case 1"
+   echo "  -2 <file>  Mod directory for case 2"
+   echo "  -l         Analysis name, ex. case1_vs_case2"
+   echo ""
+   echo " OPTIONAL"
+   echo "  -o <dir>   Output directory, default ./GROUP_STATS/<user>/FCMOD/<case2>_vs_<case1>"
+   echo "  -m         Generate contrast maps"
+   echo ""
+}
+
+
+SUBJECTSfile=""
+ROInamesfile=""
+
+FCMODDIR="$(pwd)/GROUP_STATS/$(whoami)/FCMOD"
+MAKEMAPS=""
+SKIPROI=""
+SKIPROIFC=""
+
+while getopts "s:S:n:N:1:2:l:o: m h" o ; do
+    case $o in
+         s ) SUBJECTSfile=$OPTARG;;
+	 S ) SUBJECTS=$OPTARG;;
+	 n ) ROInamesfile=$OPTARG;;
+	 N ) ROInames=$OPTARG;;
+	 1 ) DIR1=$OPTARG;;
+	 2 ) DIR2=$OPTARG;;
+	 l ) NAME=$OPTARG;;
+	 m ) MAKEMAPS=1;;
+	 o ) OUTDIR=$OPTARG;;
+	 h ) usage;
+	     exit 0;;
+    esac
+done
+
+
+if [ $# -eq 0 ]; then
+   usage; exit 0;
+fi
+
+if [ ! "$SUBJECTS" ]; then
+    if [ ! -r $SUBJECTSfile ]; then
+	echo "Error: cannot open subjects file: $SUBJECTSfile. (-h for help)"; exit;
+    fi
+    SUBJECTS=$( cat $SUBJECTSfile | xargs);
+    echo "SUBJECTS: $SUBJECTS";
+fi
+
+if [ ! -d "$DIR1" ]; then
+    echo "Error: directory required for case 1. (-h for help)."; exit 
+fi
+
+if [ ! -d "$DIR2" ]; then
+    echo "Error: directory required for case 2. (-h for help)."; exit 
+fi
+
+if [ ! "$ROInames" ]; then
+    if [ ! -r $ROInamesfile ]; then
+	echo "Error: cannot open ROI names file: $ROInamesfile. (-h for help)"; exit;
+    fi
+    ROInames=$( cat $ROInamesfile | xargs);
+    echo "ROI labels: $ROInames";
+fi
+
+CASE1=$(basename $DIR1)
+CASE2=$(basename $DIR2)
+
+if [ ! "$NAME" ]; then
+   NAME="${CASE1}_vs_${CASE2}"
+fi
+
+if [ ! "$OUTDIR" ]; then
+    OUTDIR="$(pwd)/GROUP_STATS/$(whoami)/FCMOD/$NAME"
+fi
+
+mkdir -p $OUTDIR
+
+NSUBJECTS=$(echo $SUBJECTS | wc -w)
+
+MAPSDIR="$OUTDIR/maps"
+mkdir -p $MAPSDIR
+
+FSGDDIR="$MAPSDIR/fsgd"
+mkdir -p $MAPSDIR/fsgd/
+CONSDIR="$MAPSDIR/contrast"
+mkdir -p $MAPSDIR/contrast/
+BIGDIR="$MAPSDIR/4d"
+mkdir -p $MAPSDIR/4d/
+
+CASE1=$(basename $DIR1)
+CASE2=$(basename $DIR2)
+
+echo "CASE 1: $CASE1"
+echo "CASE 2: $CASE2"
+
+
+
+function TwoSteps() {
+
+    for r in $ROInames; do
+
+	cp $DIR1/maps/${CASE1}_{pre,post}_${r}.lst $MAPSDIR/
+	cp $DIR2/maps/${CASE2}_{pre,post}_${r}.lst $MAPSDIR/
+
+
+	TITLE="${NAME}_${r}"
+	FSGD="$FSGDDIR/$TITLE.fsgd"
+	CONTRAST="$CONSDIR/${TITLE}.mat"
+	CONTRAST_NEG="$CONSDIR/${TITLE}.neg.mat"
+
+	##############################################
+
+	d="$MAPSDIR/${TITLE}_volumes"
+	mkdir -p $d
+
+	cmd_pos=""
+	cmd_neg=""
+	echo "GroupDescriptorFile     1" > $FSGD
+	echo "Title $TITLE" >> $FSGD
+	echo -n "" > $CONTRAST
+	for x in $SUBJECTS; do
+    	    echo "Class Class_${x}" >> $FSGD
+	    echo -n "0 " >> $CONTRAST
+	done
+
+	echo -n "1" >> $CONTRAST
+	echo "Variables 	    	before_after" >> $FSGD
+
+	for task in $CASE1 $CASE2; do
+
+    	    ## hard-code contrast values ##
+
+	    if [ "$task" == "$CASE1" ]; then
+		taskn=1;
+	    else
+		taskn=-1;
+	    fi
+
+	    ###############################
+
+    	    FILES_BEFORE_STR="${task}_pre_${r}"
+    	    FILES_AFTER_STR="${task}_post_${r}"
+
+	    for x in $SUBJECTS; do 
+    		after=$(cat $MAPSDIR/${FILES_BEFORE_STR}.lst | grep ${x}_bld | xargs);
+		before=$(cat $MAPSDIR/${FILES_BEFORE_STR}.lst | grep ${x}_bld | xargs);
+
+		echo "SUBJECT: $x"
+		echo "AFTER  $task:   $after"
+		echo "BEFORE $task:  $before"
+		echo ""
+
+		# average (if multiple before/after runs)
+		if [ $(echo $after | wc -w) -gt 1 ]; then
+    		    imgopr_nifti -e$d/${x}_${FILES_AFTER_STR}.nii.gz $after;
+		else
+    		    cp $after $d/${x}_${FILES_AFTER_STR}.nii.gz;
+		fi
+
+		if [ $(echo $before | wc -w) -gt 1 ]; then
+    		    imgopr_nifti -e$d/${x}_${FILES_BEFORE_STR}.nii.gz $before;
+		else
+    		    cp $before $d/${x}_${FILES_BEFORE_STR}.nii.gz;
+		fi
+
+	    	
+		echo "Input $x  Class_${x}	${taskn}" >> $FSGD
+
+		## absolute value that shit
+		mris_calc -o ${d}/${x}_${FILES_BEFORE_STR}.$$.nii.gz ${d}/${x}_${FILES_BEFORE_STR}.nii.gz mul -1
+		mris_calc -o ${d}/${x}_${FILES_AFTER_STR}.$$.nii.gz ${d}/${x}_${FILES_AFTER_STR}.nii.gz mul -1
+		
+		mri_threshold ${d}/${x}_${FILES_AFTER_STR}.$$.nii.gz 0 ${d}/${x}_${FILES_AFTER_STR}.$$.neg.nii.gz
+		mri_threshold ${d}/${x}_${FILES_BEFORE_STR}.$$.nii.gz 0 ${d}/${x}_${FILES_BEFORE_STR}.$$.neg.nii.gz
+
+		mri_threshold ${d}/${x}_${FILES_AFTER_STR}.nii.gz 0 ${d}/${x}_${FILES_AFTER_STR}.$$.pos.nii.gz
+		mri_threshold ${d}/${x}_${FILES_BEFORE_STR}.nii.gz 0 ${d}/${x}_${FILES_BEFORE_STR}.$$.pos.nii.gz
+		
+		#mris_calc -o ${d}/${task}_${r}.pos.mask.nii.gz ${d}/${x}_${FILES_BEFORE_STR}.$$.pos.nii.gz and ${d}/${x}_${FILES_AFTER_STR}.$$.pos.nii.gz
+		#mris_calc -o ${d}/${task}_${r}.neg.mask.nii.gz ${d}/${x}_${FILES_BEFORE_STR}.$$.neg.nii.gz and ${d}/${x}_${FILES_AFTER_STR}.$$.neg.nii.gz
+		
+		## after - before
+		imgopr_nifti -s${d}/${task}_${r}.pos.nii.gz ${d}/${x}_${FILES_AFTER_STR}.$$.pos.nii.gz ${d}/${x}_${FILES_BEFORE_STR}.$$.pos.nii.gz
+		imgopr_nifti -s${d}/${task}_${r}.neg.nii.gz ${d}/${x}_${FILES_AFTER_STR}.$$.neg.nii.gz ${d}/${x}_${FILES_BEFORE_STR}.$$.neg.nii.gz
+
+		cmd_pos="$cmd_pos ${d}/${task}_${r}.pos.nii.gz "
+    	    	cmd_neg="$cmd_neg ${d}/${task}_${r}.neg.nii.gz "
+	    done
+	done
+
+	echo "fslmerge -t ${TITLE}.pos.nii.gz $cmd_pos"
+	fslmerge -t $BIGDIR/${TITLE}.pos.nii.gz $cmd_pos
+	
+	echo "fslmerge -t ${TITLE}.neg.nii.gz $cmd_neg"
+	fslmerge -t $BIGDIR/${TITLE}.neg.nii.gz $cmd_neg
+
+    	cp $CONTRAST $CONTRAST_NEG
+
+	CONTRASTNAME="$(basename ${CONTRAST%%.*})"
+	CONTRASTNAME_NEG="$(basename ${CONTRAST_NEG%%.*})"
+	
+	rm -r $d
+
+	if [ -e $BIGDIR/${TITLE}.pos.nii.gz ]; then
+	    echo "mri_glmfit --y $BIGDIR/${TITLE}.pos.nii.gz --allowsubjrep --fsgd $FSGD doss --C $CONTRAST --glmdir $MAPSDIR/glm_vol"
+	    mri_glmfit --y $BIGDIR/${TITLE}.pos.nii.gz --allowsubjrep --fsgd $FSGD doss --C $CONTRAST --glmdir $MAPSDIR/glm_vol
+	    echo "mri_mask $MAPSDIR/glm_vol/${CONTRASTNAME}/sig.mgh /cluster/animal/scripts/mni/MNI152_T1_2mm_brain_mask_dil.nii.gz $MAPSDIR/${CONTRASTNAME}.pos.nii.gz"
+	    mri_mask $MAPSDIR/glm_vol/${CONTRASTNAME}/sig.mgh /cluster/animal/scripts/mni/MNI152_T1_2mm_brain_mask_dil.nii.gz $MAPSDIR/${CONTRASTNAME}.pos.nii.gz
+	fi
+	
+	if [ -e $BIGDIR/${TITLE}.neg.nii.gz ]; then
+	    echo "mri_glmfit --y $BIGDIR/${TITLE}.neg.nii.gz --allowsubjrep --fsgd $FSGD doss --C $CONTRAST_NEG --glmdir $MAPSDIR/glm_vol"
+	    mri_glmfit --y $BIGDIR/${TITLE}.neg.nii.gz --allowsubjrep --fsgd $FSGD doss --C $CONTRAST_NEG --glmdir $MAPSDIR/glm_vol
+	    echo "mri_mask $MAPSDIR/glm_vol/${CONTRASTNAME_NEG}/sig.mgh /cluster/animal/scripts/mni/MNI152_T1_2mm_brain_mask_dil.nii.gz $MAPSDIR/${CONTRASTNAME}.neg.nii.gz"
+	    mri_mask $MAPSDIR/glm_vol/${CONTRASTNAME_NEG}/sig.mgh /cluster/animal/scripts/mni/MNI152_T1_2mm_brain_mask_dil.nii.gz $MAPSDIR/${CONTRASTNAME_NEG}.neg.nii.gz
+	fi
+	
+    done
+
+}
+
+TwoSteps

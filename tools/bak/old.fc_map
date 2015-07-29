@@ -1,0 +1,166 @@
+#!/bin/bash
+
+function usage {
+
+   echo " ______ _____   __  __          _____   "
+   echo "|  ____/ ____| |  \/  |   /\   |  __ \  "
+   echo "| |__ | |      | \  / |  /  \  | |__) | "
+   echo "|  __|| |      | |\/| | / /\ \ |  ___/  ~~~ version 1.1"
+   echo "| |   | |____  | |  | |/ ____ \| |      "
+   echo "|_|    \_____| |_|  |_/_/    \_\_|      "
+   echo ""                                  
+   echo "Generates seeded functional connectivity maps"
+   echo ""
+   echo "REQUIRED:"
+   echo "  -s <file>  File containing list of subjects"
+   echo "  -r <file>  File containing list of ROI files"
+   echo "  -n <file>  File containing list of ROI names"
+   echo ""
+   echo "  OR"
+   echo "  -S <subj>  Subject"
+   echo "  -R <file>  ROI file"
+   echo "  -N <name>  ROI name"
+   echo ""
+   echo "Example: ./fc_map -s my_subject_list.txt -r ../data/ROIs/ROIs.lst -n ../data/ROIs/ROIs_names.lst -G my_analysis"
+   echo ""
+   echo "MORE OPTIONS:"
+   echo "  -i         Analyze each run individually "
+   echo "               (each run will have a separate connectivity map...)"
+   echo "  -u <file>   Run file list (found in <subject>/<file>"
+   #echo "  -T <val>   Time points (after preprocessing)"
+   #echo "  -O <dir>   Group output directory (default ./GROUP_STATS/<user>/<group name>)"
+   #echo "  -o <dir>   individual output directory (default ./<subject>/<group name>)"
+   echo "  -c         Create individual maps (default)"
+   echo "  -g         Create a group average map"
+   echo "  -G <name>  Group name, default 'FC'"
+   echo "               Note: This is also used to sort individual maps,"
+   echo "               so as to not overwrite other maps with similar ROI names."
+   echo "               Use a unique identifier for your analysis"
+   echo "  -b         Create a group binarized map"
+   echo "  -t <val>   Threshold (zfrm), default .2"
+   echo "  -k         Gaussian smoothing BOLD to process, default 6mm"
+   echo "  -h         Display help"
+   echo ""
+}
+
+SUBJECTSfile=""
+ROIsfile=""
+ROInamesfile=""
+THRESH="0.2"
+GRPNAME="$(whoami)_fc"
+FRAMES="72"
+SMOOTH=6;
+
+
+while getopts "s:S:r:R:n:N:t:G:T:k:u:g b h c i " o ; do
+    case $o in
+         s ) SUBJECTSfile=$OPTARG;;
+	 S ) SUBJECTS=$OPTARG;;
+	 r ) ROIsfile=$OPTARG;;
+	 R ) ROIs=$OPTARG;;
+	 n ) ROInamesfile=$OPTARG;;
+	 N ) ROInames=$OPTARG;;
+	 t ) THRESH=$OPTARG;;
+	 g ) GROUPAVG=1;;
+	 G ) GRPNAME=$OPTARG;;
+	 b ) GROUPBIN=1;;
+	 c ) SINGLEMAPS=1;;
+	 T ) FRAMES=$OPTARG;;
+	 k ) SMOOTH=$OPTARG;;
+	 i ) SEPARATE=1;;
+	 u ) RUNFILE=$OPTARG;;
+	 h ) usage;
+	     exit 0;;
+    esac
+done
+
+if [ $# -eq 0 ]; then
+   usage; exit 0;
+fi
+
+if [ ! "$SUBJECTS" ]; then
+    if [ ! -r $SUBJECTSfile ]; then
+	echo "Error: cannot open subjects file: $SUBJECTSfile. (-h for help)"; exit;
+    fi
+    SUBJECTS=$( cat $SUBJECTSfile | xargs);
+    echo "SUBJECTS: $SUBJECTS";
+fi
+
+if [ ! "$ROIs" ]; then
+    if [ ! -r $ROIsfile ]; then
+	echo "Error: cannot open ROI file: $ROIsfile. (-h for help)"; exit;
+    fi
+    ROIs=$( cat $ROIsfile | xargs);
+    echo "ROIs: $ROIs";
+fi
+
+if [ ! "$ROInames" ]; then
+    if [ ! -r $ROInamesfile ]; then
+	echo "Error: cannot open ROI names file: $ROInamesfile. (-h for help)"; exit;
+    fi
+    ROInames=$( cat $ROInamesfile | xargs);
+    echo "ROI labels: $ROInames";
+fi
+
+if [ ! $GROUPAVG -a  ! $GROUPBIN ]; then
+    SINGLEMAPS=1;
+fi
+
+if [ $SMOOTH -eq 0 ]; then
+    SMOOTH_HALF_F=0
+else
+    SMOOTH_HALF_F=$( echo 'scale=15;(.4412712/('$SMOOTH'/100))' | bc  | awk '{print int($1)}' );
+fi
+
+echo "Runfile: $RUNFILE"
+
+if [ "$SINGLEMAPS" !=  "" ]; then
+    echo "***************************"
+    echo "Creating individual maps..."
+    echo "***************************"
+    if [ "$SEPARATE" != "" ]; then
+    	echo "creating individual maps for each run"
+    	for subject in $SUBJECTS; do
+	    if [ "$RUNFILE" != "" ]; then
+	        echo "+++"
+	    	if [ ! -r $subject/$RUNFILE ]; then
+		    echo "*** NO RUNFILE ($RUNFILE) FOR ${subject}. Skipping... ***"
+		    exit;
+		fi
+		
+	    	runs=$(cat $subject/$RUNFILE | xargs);
+	    else
+    	    	runs=$(ls -d $subject/bold/0* );
+	    fi
+	    t=""
+	    for run in $runs; do run=$(basename $run); t="${t}${run} "; done ;
+	    t=$(echo $t)
+	    echo "runs: $t"
+	    echo "/cluster/animal/scripts/NRG-fc/functions/fc_map_process \"$subject\" \"$ROIs\" \"$ROInames\" $FRAMES \"$GRPNAME\" $SMOOTH_HALF_F \"$t\" TRUE"
+	    /cluster/animal/scripts/NRG-fc/functions/fc_map_process "$subject" "$ROIs" "$ROInames" $FRAMES "$GRPNAME" $SMOOTH_HALF_F "$t" TRUE
+	done
+    else
+    	echo "/cluster/animal/scripts/NRG-fc/functions/fc_map_process \"$SUBJECTS\" \"$ROIs\" \"$ROInames\" $FRAMES \"$GRPNAME\" $SMOOTH_HALF_F;"
+    	/cluster/animal/scripts/NRG-fc/functions/fc_map_process "$SUBJECTS" "$ROIs" "$ROInames" $FRAMES "$GRPNAME" $SMOOTH_HALF_F;
+    fi
+fi
+
+
+if [ "$GROUPAVG" != "" ]; then
+    echo "***************************"
+    echo "Creating group average map...";
+    echo "***************************"
+    if [ "$SEPARATE" != "" ]; then
+    	/cluster/animal/scripts/NRG-fc/functions/fc_map_combine "$SUBJECTS" "$ROIs" "$ROInames" $GRPNAME $SMOOTH_HALF_F TRUE $RUNFILE;
+    else
+    	echo "/cluster/animal/scripts/NRG-fc/functions/fc_map_combine "$SUBJECTS" "$ROIs" "$ROInames" $GRPNAME $SMOOTH_HALF_F;"
+    	/cluster/animal/scripts/NRG-fc/functions/fc_map_combine "$SUBJECTS" "$ROIs" "$ROInames" $GRPNAME $SMOOTH_HALF_F;
+    fi
+fi
+
+if [ "$GROUPBIN" != "" ]; then
+    echo "***************************"
+    echo "Create binary group map...";
+    echo "***************************"
+    /cluster/animal/scripts/NRG-fc/functions/fc_map_combine_bin "$SUBJECTS" "$ROIs" "$ROInames" $THRESH "$GRPNAME" $SMOOTH_HALF_F;
+fi

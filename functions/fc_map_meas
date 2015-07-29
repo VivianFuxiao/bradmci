@@ -1,0 +1,131 @@
+#!/bin/bash
+
+# Calculate correlation coeff. of measures with connectivity strength at each voxel...
+# fc_map_meas  <fc_map_vol_list>  <roi-name>  <outdir>  <subjects> <measures_file>  <field1> <field2>, etc...
+# 
+# or just:
+# fc_map_meas  <fc_map_vol_list>  <roi-name>  <outdir>  <subjects> <measures_file>
+#
+# which will correlate ALL fields available in file.
+#
+
+if [ $# -eq 0 ]; then
+   echo "fc_map_meas  <fc_map_vol_list>  <roi>  <outdir>  <subjects> <measures_file>"; exit 0;
+fi
+
+VOLFILE=$1
+shift
+ROI=$1
+shift
+OUTDIR=$1
+shift
+SUBJECTS=$1
+shift
+MEASFILE=$1
+shift
+FIELDS=$@
+
+echo "fc_map_meas"
+echo ""
+echo "   Volume file: $VOLFILE"
+echo "      Subjects: $SUBJECTS"
+echo " Measures file: $MEASFILE"
+echo "        Fields: $FIELDS"
+echo "    Output dir: $OUTDIR"
+echo ""
+
+if [ ! -e $MEASFILE ]; then
+    echo "Cannot find file: $MEASFILE"; exit 1;
+fi
+
+MEASFILEFIELDS=$(head -n 1 $MEASFILE | cut -d "," -f 2- | sed 's/,/ /g' )
+echo "Fields in file: $MEASFILEFIELDS"
+
+# Does the number of subjects at least match the number of volumes?
+# Remember, they should match exactly! (by the use of the same subject list)
+nsubs=$(echo $SUBJECTS | wc -w)
+nvols=$(cat $VOLFILE  | wc -w)
+nmeas=$(cat $MEASFILE | wc -l)
+
+
+if [[ $nsubs -ne $nvols ]]; then
+    echo "# of subjects does not match number of volumes..."; exit 1;
+fi
+
+col=2
+# For each measure...
+for field in $MEASFILEFIELDS; do
+    FSGD="/tmp/$$.fsgd"
+    CONTRAST="/tmp/${ROI}_${field}.mat"
+    BIGFILE="/tmp/$$.nii.gz"
+    AVGFILE="/tmp/$$.avg.nii.gz"
+    POSFILE="/tmp/$$.pos.nii.gz"
+    BRAINMASK="/cluster/animal/users/mhollen/mni/MNI152_T1_2mm_brain_mask_dil.nii.gz"
+    MASK="/tmp/$$.mask.nii.gz"
+    
+    echo "0 1" > $CONTRAST
+    
+    echo "GroupDescriptorFile     1" > $FSGD
+    echo "Title FC_CORR_${field}" >> $FSGD
+    echo "Class Main" >> $FSGD
+    echo "Variables ${field}" >> $FSGD
+    
+    files=""
+    subjects=""
+    # Find subjects with value for that field
+    for subject in $SUBJECTS; do
+    	val=$(grep $subject $MEASFILE | cut -d , -f $col)
+	if [[ "$val" != "" ]]; then
+	    subjects="${subjects}${subject} "
+	    file=$(grep $subject $VOLFILE)
+	    if [ "$file" == "" ]; then
+	    	echo " ** Subject $subject has measure value, but no connectivity map"
+	    elif [ ! -r "$file" ]; then
+	    	echo " ** Cannot find volume: $file"
+	    else
+		files="${files}${file} "
+    		# Make FSGD
+		echo "Input $subject  Main $val" >> $FSGD
+	    fi
+	fi
+    done
+    
+    echo ""
+    echo "        ROI: $ROI"
+    echo "Using field: $field"
+    echo "   Subjects: $subjects"
+    echo "      files: $files"
+    echo ""
+    echo "   Temp vol: $BIGFILE"
+    echo "  Temp fsgd: $FSGD"
+    echo ""
+    
+    nsubs=$(echo $subjects | wc -w)
+    nfiles=$(echo $files | wc -w)
+    
+    if [[ $nsubs -ne $nfiles ]]; then
+    	echo "# of files and # subjects with measures are mismatched!"; exit 1;
+    fi
+    
+    # Use those subjects to create merged volume, and FSGD file.
+    echo "Making merged 4D volume..."
+    fslmerge -t $BIGFILE $files
+    
+    echo "mri_glmfit --y $BIGFILE --fsgd $FSGD dods --C $CONTRAST --glmdir $OUTDIR/${field}"
+    mri_glmfit --y $BIGFILE --fsgd $FSGD dods --C $CONTRAST --glmdir $OUTDIR/${field}
+
+    echo "Making positive mask..."
+    imgopr_nifti -e${AVGFILE} $files
+    mri_binarize --i $AVGFILE --min 0 --o $POSFILE 
+    fscalc $POSFILE and $BRAINMASK --o $MASK
+    
+    echo "mri_mask $OUTDIR/${field}/${field}/sig.mgh $BRAINMASK $OUTDIR/${ROI}_${field}.nii.gz"
+    mri_mask $OUTDIR/${field}/${ROI}_${field}/sig.mgh $BRAINMASK $OUTDIR/${ROI}_${field}.nii.gz
+    
+    # Mask to only positive correlations
+    echo "mri_mask $OUTDIR/${field}/${ROI}_${field}/sig.mgh $MASK $OUTDIR/${ROI}_${field}.pos.nii.gz"
+    mri_mask $OUTDIR/${field}/${ROI}_${field}/sig.mgh $MASK $OUTDIR/${ROI}_${field}.pos.nii.gz
+    
+    
+    col=$((col+1))
+done

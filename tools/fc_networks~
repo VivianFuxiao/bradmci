@@ -15,7 +15,7 @@
 # 
 #############################################
 
-NETWORKSFILE="/autofs/cluster/animal/scripts/NRG-fc/functions/fc_networks.csv"
+NETWORKSFILE="/cluster/animal/users/mhollen/scripts/fc_networks.csv"
 ROISIZE=6
 
 if [ ! -r $NETWORKSFILE ]; then

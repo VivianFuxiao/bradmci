@@ -10,13 +10,6 @@ source /cluster/animal/scripts/matlab/matlab_74
 #
 
 function usage {
-
-   echo " ______ _____            _   _          _  __     _______ _____  _____ "
-   echo "|  ____/ ____|     /\   | \ | |   /\   | | \ \   / / ____|_   _|/ ____|"
-   echo "| |__ | |         /  \  |  \| |  /  \  | |  \ \_/ / (___   | | | (___  "
-   echo '|  __|| |        / /\ \ | . ` | / /\ \ | |   \   / \___ \  | |  \___ \  ~~~ version 1.2.1'
-   echo "| |   | |____   / ____ \| |\  |/ ____ \| |____| |  ____) |_| |_ ____) |"
-   echo "|_|    \_____| /_/    \_\_| \_/_/    \_\______|_| |_____/|_____|_____/ "             
    echo ""
    echo "REQUIRED:"
    echo "                (you can use multiple subject args to compare groups)"

@@ -1,0 +1,103 @@
+#!/bin/bash
+# usage: fc_repreproc <subjid> <fwhm in mm> [ <fwhm> ... <fwhm> ] 
+# this will extract mpr/bold/epi from <subjid>/scripts/unpack_fsl.log
+# so far, this is only used to reprocess smoothing kernel
+
+T1target="/cluster/nrg/tools/current/code/targets/rN12Trio_avg152T1_brain.4dint"
+T2target="/usr/pubsw/common/spm/spm2/templates/EPI.mnc"
+
+# vars
+sid=$1
+shift
+fwhms="$@"
+
+# does the unpack config file exist?
+fslconfig="${sid}/scripts/${sid}_unpack_fsl.cfg"
+if [ ! -e $fslconfig ]; then
+   echo "error: cannot find $fslconfig."
+   exit 1
+fi
+
+# parse config file
+mpr=$(cat $fslconfig | grep "_mpr" | xargs | awk '{print $1}') # only one
+boldstr=$(cat $fslconfig | grep "_bld" | awk '{print $1}' | xargs )
+epi=$(cat $fslconfig | grep "_t1epi" | xargs | awk '{print $1}') # only one
+
+# epi is optional
+if [ "$epi" == "" ]; then
+   epistr=""
+else
+   epistr="-epi $epi"
+fi
+
+# pull TR from seq.info
+seqfile=$sid/bold/seq.info
+trfile=$sid/bold/tr
+if [ ! -e $seqfile ]; then
+   echo "error: cannot find $seqfile"
+   if [ ! -e $trfile ]; then
+       echo "error: cannot find $trfile either."
+       exit 1
+   else
+      echo "using $trfile instead."
+      tr=$(cat $trfile | xargs);
+   fi 
+else
+    tr=$(cat $seqfile | grep TR | awk '{print $2}' | sed 's/\.[0]*$//g')
+fi
+
+
+fsldone=0
+
+for fwhm in $fwhms; do
+   pfilename=${sid}_fwhm${fwhm}.param
+   
+   # backup params file
+   pfile=${sid}/scripts/${pfilename}
+   if [ -e $pfile ]; then
+      datestr=$(date +"%Y-%m-%d")
+      cp $pfile ${pfile}.${datestr}.bak 
+   fi
+
+   # make params file
+   echo /cluster/animal/users/mhollen/scripts/fcparams.pl -id $sid -bold $boldstr -fwhm $fwhm -TR $tr -mpr $mpr $epistr -sdir ${sid}/scripts/ -pfile $pfilename -T1target $T1target -T2target $T2target
+
+   /cluster/animal/users/mhollen/scripts/fcparams.pl -id $sid -bold $boldstr -fwhm $fwhm -TR $tr -mpr $mpr $epistr -sdir ${sid}/scripts/ -pfile $pfilename -T1target $T1target -T2target $T2target
+
+   # check that param file was created
+   if [ ! -e $pfile ]; then
+      echo "error: param file not created ($pfile)"
+      exit 1
+   fi
+
+   # structural processing is the same for each smoothing kernel.
+   # just do it once. we'll also skip if *atl.nii.gz already exists
+   for b in $boldstr; do
+      bn=$(printf '%03d' $b)
+      filesthere=$(ls $sid/bold/$bn/*rest*atl.nii.gz 2> /dev/null | xargs | wc -w)
+      if [ $filesthere -gt 0 ]; then
+         echo "$sid: *atl.nii.gz file exists! skipping fsl preprocesing."
+         fsldone=1
+      fi
+   done
+   if [ $fsldone -eq 0 ]; then
+       # fsl preprocess
+       /cluster/animal/users/mhollen/scripts/fsl_preprocess.new.sh -s $sid --script $pfile
+       
+       # check to see if this frackin' worked.
+       filesthere=$(ls $sid/bold/0??/*atl.nii.gz 2> /dev/null | xargs | wc -w)
+       if [ $filesthere -gt 0 ]; then
+           fsldone=1
+       else
+           echo "$sid: fsl_proprocess did not work!"
+           exit 1 
+       fi
+   fi
+
+   # uncomment goto in params file (we are now in fcMRI mode)
+   perl -pi -e 's/\#goto/goto/g' $pfile
+
+   # fcmri preprocess
+   /cluster/animal/scripts/NRG-fc/functions/fcmri_preprocess.csh $sid $pfilename 
+done
+

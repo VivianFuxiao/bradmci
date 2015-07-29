@@ -1,0 +1,135 @@
+#!/bin/bash
+
+
+function usage {
+   echo "Will make 3 maps: unique to condition, and common/overlap"
+   echo ""
+   echo "REQUIRED:"
+   echo "  -n <file>  File containing list of ROI names"
+   echo "  OR"
+   echo "  -N <name>  ROI name"
+   echo "  AND "
+   echo "  -1 <name>  Analysis name, #1"
+   echo "  -2 <name>  Analysis name, #2"
+   echo "  -t <val>   Threshold, default 1.3"
+   echo ""
+   echo " OPTIONAL"
+   echo "  -d <dir>   Input dir for analysis #1, default ./GROUP_STATS/<user>/FCMOD/<analysis1>/maps/"
+   echo "  -D <dir>   Input dir for analysis #1, default ./GROUP_STATS/<user>/FCMOD/<analysis2>/maps/"
+   echo "  -o <dir>   Output directory, default ./GROUP_STATS/<user>/FCMOD_COMPARE/<analysis name>_vs_<analysis name>"
+   echo ""
+}
+
+
+SUBJECTSfile=""
+ROInamesfile=""
+FCMODDIR="$(pwd)/GROUP_STATS/$(whoami)/FCMOD"
+THRESH="1.3"
+
+while getopts "n:N:1:2:o:d:D:t: h" o ; do
+    case $o in
+	 n ) ROInamesfile=$OPTARG;;
+	 N ) ROInames=$OPTARG;;
+	 1 ) ANALYSIS1=$OPTARG;;
+	 2 ) ANALYSIS2=$OPTARG;;
+	 o ) OUTDIR=$OPTARG;;
+	 t ) THRESH=$OPTARG;;
+	 d ) DIR1=$OPTARG;;
+	 D ) DIR2=$OPTARG;;
+	 h ) usage;
+	     exit 0;;
+    esac
+done
+
+if [ $# -eq 0 ]; then
+   usage; exit 0;
+fi
+
+if [ ! "$ANALYSIS1" ]; then
+    echo "Error: 'before' run list file required. (-h for help)."; exit 
+fi
+
+if [ ! "$ANALYSIS2" ]; then
+    echo "Error: 'after' run list file required. (-h for help)."; exit 
+fi
+
+if [ ! "$ROInames" ]; then
+    if [ ! -r $ROInamesfile ]; then
+	echo "Error: cannot open ROI names file: $ROInamesfile. (-h for help)"; exit;
+    fi
+    ROInames=$( cat $ROInamesfile | xargs);
+    echo "ROI labels: $ROInames";
+fi
+
+if [ ! "$DIR1" ]; then
+    DIR1="$FCMODDIR/${ANALYSIS1}/maps/"
+fi
+
+if [ ! "$DIR2" ]; then
+    DIR2="$FCMODDIR/${ANALYSIS2}/maps/"
+fi
+
+if [ ! "$OUTDIR" ]; then
+    OUTDIR="$(pwd)/GROUP_STATS/$(whoami)/FCMOD_COMPARE/${ANALYSIS1}_vs_${ANALYSIS2}"
+fi
+
+if [ ! -e $DIR1 ]; then
+    echo "Error: directory cannot be found, $DIR1"; exit
+fi
+
+if [ ! -e $DIR2 ]; then
+    echo "Error: directory cannot be found, $DIR2"; exit
+fi
+
+echo "ANALYSIS 1: $ANALYSIS1"
+echo "ANALYSIS 2: $ANALYSIS2"
+echo "OUTPUT DIR: $OUTDIR"
+
+mkdir -p $OUTDIR
+
+# COMPARE!
+
+for r in $ROInames; do
+
+    echo "$r"
+    
+    FILE1="$DIR1/${ANALYSIS1}_${r}_post_vs_pre.nii.gz"
+    FILE2="$DIR2/${ANALYSIS2}_${r}_post_vs_pre.nii.gz"
+    TMP1="/tmp/$$.file1.nii.gz"
+    TMP2="/tmp/$$.file2.nii.gz"
+    MASK1="$OUTDIR/${r}_SELECTIVE_${ANALYSIS1}_thresh_${THRESH}_mask.nii.gz"
+    MASK2="$OUTDIR/${r}_SELECTIVE_${ANALYSIS2}_thresh_${THRESH}_mask.nii.gz"
+    MASK3="$OUTDIR/${r}_COMMON_thresh_${THRESH}_mask.nii.gz"
+    
+    
+    rm -f $TMP1
+    rm -f $TMP2
+    rm -f $MASK1
+    rm -f $MASK2
+    rm -f $MASK3
+    
+    mri_binarize --i $FILE1 --min $THRESH --o $TMP1 --abs
+    mri_binarize --i $FILE2 --min $THRESH --o $TMP2 --abs
+    
+    ## make masks ##
+    
+    # unique to 1
+    mris_calc -o $MASK1 $TMP1 gt $TMP2
+    # unique to 2
+    mris_calc -o $MASK2 $TMP2 gt $TMP1
+    # common to both
+    mri_and $TMP1 $TMP2 $MASK3
+    
+    ## mask modulation data ##
+    
+    # unique to 1
+    mris_calc -o $OUTDIR/${r}_SELECTIVE_${ANALYSIS1}_thresh_${THRESH}.nii.gz $FILE1 masked $MASK1
+    # unique to 2
+    mris_calc -o $OUTDIR/${r}_SELECTIVE_${ANALYSIS2}_thresh_${THRESH}.nii.gz $FILE2 masked $MASK2
+    # common to both
+    mris_calc -o $OUTDIR/${r}_COMMON_${ANALYSIS1}_thresh_${THRESH}.nii.gz $FILE1 masked $MASK3
+    # common to both
+    mris_calc -o $OUTDIR/${r}_COMMON_${ANALYSIS2}_thresh_${THRESH}.nii.gz $FILE2 masked $MASK3
+    
+done
+
