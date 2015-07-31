@@ -19,7 +19,7 @@ function usage {
    echo "  https://github.com/mrstepanovic/bradmci"
    echo ""
    echo "REQUIRED:"
-   echo "  -S  <subj>    Subject names (use multiple in quotes to compare groups)"
+   echo "  -S  <subj>    Subject IDs (use multiple in quotes to compare groups)"
    echo "  -R  <file>    ROI file locations"
    echo "  -N  <name>    ROI names (default is ROI file name)"
    echo ""
