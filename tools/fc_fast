@@ -16,7 +16,101 @@
 # downloading fMRI data from the NEXUS archive at MGH using "arcget", data                                             
 # preprocessing using fsl_preprocess.sh and fcMRI_preproc_nifti.csh, and                                               
 # generating correlation maps using fcMRI_analysis.csh.                                                                
-                                                                                                                       
+            
+sub usage
+{        
+
+use vars qw
+        (  
+        $VERSION
+            );  
+
+  #$VERSION = q$\$Id: fcfast,v 1.8 2009/02/26 16:14:28 mtt24 Exp $;
+  #$VERSION = q$\$Id: fcfast,v 1.9 2011/03/29 16:14:28 ythomas Exp $;
+  #$VERSION = q$\$Id: fcfast,v 2.0 2011/09/26 16:14:28 ythomas Exp $;
+
+  # ridiculous Perl formatting, but I NEED this ASCII art
+  print " _   _ _____   _____   ______ _____ ______       _____ _______ \n";
+  print "\| \\ \| \|  __ \\ / ____| |  ____/ ____\|  ____\/\\    / ____\|__   __\|\n";
+  print "\|  \\\| \| \|__) \| \|  __  \| \|__ \| \|    \| \|__ \/  \\  | (___    \| \|   \n";
+  print "\| . ` \|  _  \/\| \| \|_ \| \|  __\|\| \|    \|  __\/ \/\\ \\  \\___ \\   \| \|   \n";
+  print "\| \|\\  \| \| \\ \\\| \|__\| \| \| \|   \| \|____\| \| \/ ____ \\ ____) \|  \| \|   v2.0 - ythomas  2011-09-26\n";
+  print "\|_| \\_|_\|  \\_\\\______\| \|_\|    \\_____\|_\|\/_\/    \\_\\_____\/   \|_\|   v2.1 - stepanov 2015-07-23\n\n";
+  print "FCFAST carries out functional connectivity and whole brain correlation analyses. It \n";
+  print "encompasses all steps from downloading fMRI data from Bourget at the Martinos Center using \n";
+  print "\"findsession\", data preprocessing using fsl_preprocess.sh and fcMRI_preproc_nifti.csh, \n";
+  print "and generating correlation maps using fcMRI_analysis.csh. This version is built on FSL v5.0.1.\n";   
+  print "\n";
+  print "More documentation:\n";
+  print "  https://gate.nmr.mgh.harvard.edu/wiki/bradmci/index.php/NRG_Functional_Connectivity_Tools\n";
+  print "GitHub:\n";
+  print "  https://github.com/mrstepanovic/bradmci\n\n";
+  print "EXAMPLE: for DICOMS located on Bourget...\n";
+  print "         ./fc_fast -id scids_024 -tr 5.0 -mpr 4 -epi 5 -bold 8,10\n";
+  print "";
+  print "EXAMPLE: for DICOMS located elsewhere...\n";
+  print "         ./fc_fast -id scids_024 -rawdir </path/to/dicoms> -tr 5.0 -mpr 4 -epi 5 -bold 8,10\n\n";
+  print "REQUIRED:\n";
+  print "  -id          <subjid>  If -rawdir is not provided, this will be the search term for findsession\n";   
+  print "  -tr          <number>  Temporal resolution in seconds\n";
+  print "  -mpr         <run #>   T1-weighted MPRAGE run number in session\n";                    
+  print "  -bold        <run #>   BOLD run number (if multiple, separate by commas)\n";                          
+  print "  -rawdir      <path>    Path to raw DICOM directory (use if files are not on Bourget)\n";
+  print "  -anat_rawdir <path>    Path to T1 structural if not in same DICOM session as -rawdir\n";
+  print "";
+  print "OPTIONS:\n";
+  print "  -epi         <run #>   T1-weighted EPI number\n";
+  print "  -nocleanup             Do not remove intermediate preproc. files\n"; 
+  print "  -sdir                  Location to save results (default is '$PWD')\n";
+  print "  -stackcheck            Generate QC .report file images for unpacked raw bold runs\n";
+  print "";
+  print "MORE OPTIONS:\n";
+  print "  -spmpath     <path>    SPM params file location if different from default\n";
+  print "  -skip        <number>  Number of dummy frames to skip (default is 4; for zero use -noskip)\n";
+  print "  -noskip                Do not delete dummy frames\n";
+  print "  -noregress_wb          Do not regress mean global signal (a.k.a. no GSR)\n";
+  print "  -noregress_wmvent      Do not regress mean white matter + ventricular signal\n";
+  #print " -rearchive: re-archive local RAW directories to save space\n"; TODO TEST THIS, MIKE  
+  #print " -host: URL to XNAT (e.g. http://localhost:8080/xnat) (default: host specified in arcget.conf file)\n TODO when BRADMCI IS UP AND RUNNING"; 
+  print "  -lowmem                Use fslmaths for smoothing instead of gauss_nifti; do not run stackcheck.csh\n";
+  print "  -matlab_qc_plot        Use matlab to perform qc plot insteads of gnuplot\n";
+  print "  -display               Displays using fivn the final correlation (Z) images for each region\n\n";  
+  ##print "-smooth: specify in mm the FWHM of a gaussian kernel to smooth preprocessed data.\n";
+  # uncomment print "-smooth:..." if changing to procfast 
+  print "T1 and T2 TARGET OPTIONS:\n";
+  print "  -T1target    <name>    T1 target image for normalizing MPRAGE (default is MNIT1S)\n";             
+  print "                         MNIT1S:   skull stripped merged old/young atlas 3T Trio (MNI152, Snyder atlas)\n";  
+  print "                         MNIT1SPM: T1-weighted (MNI152, standard SPM atlas, not skull-stripped)\n";    
+  print "                         MNIT1FSL: T1-weighted (MNI152, standard FSL atlas, skull-stripped)\n";    
+  print "                         MNIT1Y:   young adult atlas 3T Trio (MNI152, Snyder atlas)\n";  
+  print "                         MNIT1O:   old adult atlas 3T Trio (MNI152, Snyder atlas)\n";
+  print "                         MNIT1OY:  merged old/young atlas 3T Trio (MNI152, Snyder atlas)\n\n";
+  print "                         CN12T1OY: skull-stripped merged old/young brain template\n";   
+  print "  -T2target    <name>    T2 target image for normalizing BOLD (default is MNIBLDS)\n";    
+  print "                         MNIBLDS:  epi BOLD-contrast atlas (MNI152 space, standard SPM atlas)\n";     
+  print "                         MNIBLDY:  young adult epi BOLD-contrast atlas 3T Trio (MNI152, Snyder atlas)\n";
+  print "                         MNIBLDO:  old adult epi BOLD-contrast atlas 3T Trio (MNI152, Snyder atlas)\n";
+  print "                         MNIBLDOY: merged old/young epi BOLD-contrast atlas 3T Trio (MNI152, Snyder atlas)\n";
+  # comment out print statements below if changing to procfast
+  print "RUNTYPE OPTIONS:\n";
+  print "  -fc                    Computes functional connectivity (default)\n";
+  print "  -roi                   (Use with -fc) Seed region/regions (separate multiples with commas)\n";
+  print "  -roilist               (Use with -fc) Specify seed regions in a text list\n";
+  print "  -bc                    Computes whole brain correlation (overrides -fc)\n";
+  print "  -mask                  (Use with -bc) Specify mask > 0 to select voxels from input image (default is MNI152 brain)\n";     
+  print "  -thresh                (Use with -bc) Set threshold for counting voxel values > threshold (default is 0.25; range = -1 to 1)\n";
+  print "  -near                  (Use with -bc) Apply inverse distance weighting to correlation that decreases with distance\n";
+  print "EXAMPLES:\n";
+  print "  ./fc_fast -fc -id 070519_4TT00258 -tr 2.5 -mpr 3 -bold 5,6 -stackcheck \\ \n";
+  print "                         -roi /usr/seeds/reg6mm_-40_-18_48_.nii.gz,/usr/seeds/reg6mm_40_-18_48_.nii.gz \n";  
+  print "  ./fc_fast -fc -id 070519_4TT00258 -roilist /usr/seeds.txt -tr 2.5 -mpr 3 -bold 5,6 -stackcheck -display\n"; 
+  print "  ./fc_fast -bc -id 070519_4TT00258 -mask /usr/wbrainmask.nii.gz -tr 2.5 -mpr 3 -bold 5,6 -thresh 0.25\n";
+  print "  ./fc_fast -bc -id 070519_4TT00258 -tr 2.5 -mpr 3 -bold 5,6 -thresh 0.25\n\n";                     
+exit;                                                                                                                                                               
+}       
+
+
+                                                                                                           
 use strict;                                                                                                            
 use Getopt::Long qw(:config no_ignore_case);                                                                           
 use Cwd 'abs_path';                                                                                                    
@@ -830,8 +924,8 @@ if($options{smooth})
         chdir("../");
 }                    
 
-## --- clean any unnecessary files
-if($options{clean})               
+## --- clean any unnecessary files -- made default by MS on 7-31-2015
+if(!$options{nocleanup})               
 {                                 
         chdir($sid);              
 
@@ -1187,102 +1281,9 @@ sub check_status
         }                                   
 }                                           
 
-sub usage
-{        
-
-use vars qw
-        (  
-        $VERSION
-            );  
-
-  #$VERSION = q$\$Id: fcfast,v 1.8 2009/02/26 16:14:28 mtt24 Exp $;
-  #$VERSION = q$\$Id: fcfast,v 1.9 2011/03/29 16:14:28 ythomas Exp $;
-  #$VERSION = q$\$Id: fcfast,v 2.0 2011/09/26 16:14:28 ythomas Exp $;
-
-  # ridiculous Perl formatting, but I NEED this ASCII art
-  print " _   _ _____   _____   ______ _____ ______       _____ _______ \n";
-  print "\| \\ \| \|  __ \\ / ____| |  ____/ ____\|  ____\/\\    / ____\|__   __\|\n";
-  print "\|  \\\| \| \|__) \| \|  __  \| \|__ \| \|    \| \|__ \/  \\  | (___    \| \|   \n";
-  print "\| . ` \|  _  \/\| \| \|_ \| \|  __\|\| \|    \|  __\/ \/\\ \\  \\___ \\   \| \|   \n";
-  print "\| \|\\  \| \| \\ \\\| \|__\| \| \| \|   \| \|____\| \| \/ ____ \\ ____) \|  \| \|   v2.0 - ythomas  2011-09-26\n";
-  print "\|_| \\_|_\|  \\_\\\______\| \|_\|    \\_____\|_\|\/_\/    \\_\\_____\/   \|_\|   v2.1 - stepanov 2015-07-23\n\n";
-  print "FCFAST carries out functional connectivity and whole brain correlation analyses. It \n";
-  print "encompasses all steps from downloading fMRI data from Bourget at the Martinos Center using \n";
-  print "\"findsession\", data preprocessing using fsl_preprocess.sh and fcMRI_preproc_nifti.csh, \n";
-  print "and generating correlation maps using fcMRI_analysis.csh. This version is built on FSL v5.0.1.\n\n";   
-
-  # --- Uncomment these statements if changing to procfast and comment out the print "usage fcfast ..." statements: 
-  # print "Note: procfast is derived from the parent script fcfast.\n"; 
-  # print "usage: procfast -id 070519_4TT00247 -tr 5.0 -mpr 3 -bold 5,6\n";
-  # print "usage: procfast -id 070519_4TT00247 -tr 5.0 -mpr 3 -bold 5,6 -T1target MNIT1OY -T2target MNIBLDOY -clean\n";
-  # print "usage: procfast -id 070519_4TT00247 -tr 5.0 -mpr 3 -bold 5,6 -smooth 6.0 -T1target MNIT1OY -T2target MNIBLDOY -clean\n";
-  print "For dicoms located on Bourget:\n";
-  print "  ./nrg_fcfast -id <findsession_id> -tr <(s)> -mpr <T1 run #> -epi <epi run #> -bold <bold runs, sep. by commas\n";
-  print "  ./nrg_fcfast -id ftd_family_001 -tr 5 -mpr 3 -epi 4 -bold 10,12,14\n\n";
-  print "For dicoms located elsewhere:\n";
-  print "  ./nrg_fcfast -rawdir </path/to/dicoms> -id <subject_id> -tr <(s)> -mpr <T1 run #> -epi <epi run #> -bold <bold run #s, sep. by commas\n";
-  print "  ./nrg_fcfast -rawdir /data/ftd_family_001/dicoms -id ftd_family_001_baseline -tr 5 -mpr 3 -epi 4 -bold 10,12,14\n\n";
-
-  print "Some combination of the following required:\n";
-  print " -id: session ID\n";   
-  print " -tr: sampling rate in sec\n";
-  print " -mpr: t1 weighted mprage number\n";                    
-  print " -epi: t1 weighted EPI number (optional)\n"; 
-  print " -bold: bold run numbers followed by a comma (e.g. -bold 5,6,13)\n";                          
-  print " -rawdir: path to raw DICOM directory\n";
-  print " -anat_rawdir: path to anat raw data directory if raw anat data is not located in archive or not in the same session as bold\n";
-  print " -sdir: location to save results (default is './')\n";
-  print " -clean: remove RAW directory and intermediate bold runs (HIGHLY recommended)\n";  
-  print " -stackcheck: generate quality control .report file and qc images for unpacked raw bold runs\n\n";
-  print "More options:\n";
-  print " -noregress_wb: do not regress mean global signal (a.k.a. no GSR)\n";
-  print " -noregress_wmvent: do not regress mean white matter + ventricular signal\n";
-  print " -rearchive: re-archive local RAW directories to save space\n";          
-  print " -host: URL to XNAT (e.g. http://localhost:8080/xnat) (default: host specified in arcget.conf file)\n"; 
-  print " -spmpath: SPM params file location if different from default params file\n";
-  print " -skip: number of frames to skip (default is 4)\n";
-  print " -noskip: no deletion of frames. Note that specifying skip to be zero does not work\n";
-  print " -nocleanup: leave intermediate files produced at preprocessing stage\n"; 
-  print " -lowmem: uses fslmaths for smoothing instead of gauss_nifit, also does not run stackcheck.csh\n";
-  print " -matlab_qc_plot: uses matlab to perform qc plot insteads of gnuplot, etc\n";
-  print " -display: displays using fivn the final correlation (Z) images for each region\n";  
-  ##print "-smooth: specify in mm the FWHM of a gaussian kernel to smooth preprocessed data.\n";
-  # uncomment print "-smooth:..." if changing to procfast 
-  print " -T2target: T2 target image for normalizing BOLD (default is MNIBLDS)\n";  
-  print "   \| T2 Target images available for normalization:\n";    
-  print "   \| MNIBLDS: T2-weighted epi BOLD-contrast atlas (MNI152 space, standard SPM atlas)\n";     
-  print "   \| MNIBLDY: T2-weighted young adult epi BOLD-contrast atlas 3T Trio (MNI152 space, Snyder atlas)\n";       
-  print "   \| MNIBLDO: T2-weighted old adult epi BOLD-contrast atlas 3T Trio (MNI152 space, Snyder atlas)\n";       
-  print "   \| MNIBLDOY: T2-weighted merged old/young epi BOLD-contrast atlas 3T Trio (MNI152 space, Snyder atlas)\n";          
-  print " -T1target: T1 target image for normalizing MPRAGE (default is MNIT1S)\n";   
-  print "   \| T1 Target images available for normalization:\n";            
-  print "   \| MNIT1S: skull stripped T1-weighted merged old/young atlas 3T Trio (MNI152 space, Snyder atlas)\n";    
-  print "   \| MNIT1SPM: T1-weighted (MNI152 space, standard SPM atlas, not skull-stripped)\n";    
-  print "   \| MNIT1FSL: T1-weighted (MNI152 space, standard FSL atlas, skull-stripped)\n";    
-  print "   \| MNIT1Y: T1-weighted young adult atlas 3T Trio (MNI152 space, Snyder atlas)\n";  
-  print "   \| MNIT1O: T1-weighted old adult atlas 3T Trio (MNI152 space, Snyder atlas)\n";
-  print "   \| MNIT1OY: T1-weighted merged old/young atlas 3T Trio (MNI152 space, Snyder atlas)\n";
-  print "   \| CN12T1OY: skull-stripped T1-weighted merged old/young brain template\n\n";                          
-  # comment out print statements below if changing to procfast
-  print "Runtype options:\n";
-  print " -fc: computes functional connectivity (default)\n";
-  print "   \| Options specific to -fc flag:\n";  
-  print "   \| -roi: specify seed region/regions (follow multiple seed region names by a comma)\n";
-  print "   \| -roilist: specify seed regions in a text list.\n";
-  print "   \| Examples:\n";                                                            
-  print "   \|  fcfast -id 070519_4TT00258 -roi /usr/seeds/reg6mm_-40_-18_48_.nii.gz,/usr/seeds/reg6mm_40_-18_48_.nii.gz -tr 2.5 -mpr 3 -bold 5,6 -stackcheck\n";        
-  print "   \|  fcfast -id 070519_4TT00258 -roilist /usr/seeds.txt -tr 2.5 -mpr 3 -bold 5,6 -stackcheck -display\n";  
-  print " -bc: computes whole brain correlation (overrides -fc)\n";
-  print "   \| Options specific to -bc flag:\n";                                             
-  print "   \| -mask: specify mask > 0 to select voxels from input image (default mask is MNI152 brain)\n";     
-  print "   \| -thresh: set threshold for counting voxel values > threshold (default is 0.25; range = -1 to 1)\n";   
-  print "   \| -near: apply inverse distance weighting to correlation that decreases with distance\n";
-  print "   \| Examples:\n";                       
-  print "   \|  fcfast -bc -id 070519_4TT00258 -mask /usr/wbrainmask.nii.gz -tr 2.5 -mpr 3 -bold 5,6 -thresh 0.25\n";
-  print "   \|  fcfast -bc -id 070519_4TT00258 -tr 2.5 -mpr 3 -bold 5,6 -thresh 0.25\n\n";
-exit;                                                                                                                                                               
-}                                                                                                                                                                       
+                                                                                                                                                                
 =cmt --- bypass arcget configuration --- Removed by Mike Stepanovic on July 23, 2015
+
 sub arcGetSession {
         my $params = {@_};
         my $prev_flush = $|;
