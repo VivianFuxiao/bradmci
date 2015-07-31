@@ -5,54 +5,73 @@ function usage {
    echo " ______ _____   __  __          _____   "
    echo "|  ____/ ____| |  \/  |   /\   |  __ \  "
    echo "| |__ | |      | \  / |  /  \  | |__) | "
-   echo "|  __|| |      | |\/| | / /\ \ |  ___/  ~~~ version 2.0"
+   echo "|  __|| |      | |\/| | / /\ \ |  ___/  ~ v2.0"
    echo "| |   | |____  | |  | |/ ____ \| |      "
    echo "|_|    \_____| |_|  |_/_/    \_\_|      "
    echo ""                                  
-   echo "Generate seeded FC maps"
+   echo "FC_MAP generates seeded functional connectivity maps in MNI152 space. Maps"
+   echo "are given as Fisher's z, an r-to-z transformation (Fisher, 1915). Use the "
+   echo "freesurfer tool mri_vol2surf to project values to cortex for visualization."
+   echo ""
+   echo "More documentation:"
+   echo "  https://gate.nmr.mgh.harvard.edu/wiki/bradmci/index.php/NRG_Functional_Connectivity_Tools"
+   echo "GitHub:"
+   echo "  https://github.com/mrstepanovic/bradmci"
    echo ""
    echo "REQUIRED:"
-   echo "  -s <file>  File containing list of subjects (use multiple to compare groups)"         
-   echo "  -r <file>  File containing list of ROI files"
-   echo "  -n <file>  File containing list of ROI names"
+   echo "  -S  <subj>    Subject names (use multiple in quotes to compare groups)"
+   echo "  -R  <file>    ROI file locations"
+   echo "  -N  <name>    ROI names (default is ROI file name)"
    echo ""
    echo "  OR"
-   echo "  -S <subj>  Subject"
-   echo "  -R <file>  ROI file"
-   echo "  -N <name>  ROI name"
+   echo ""
+   echo "  -s  <subjid>  File containing subject IDs"         
+   echo "  -r  <paths>   File containing list of ROI files"
+   echo "  -n  <names>   File containing list of ROI names"
+   echo ""
+   echo "EXAMPLE: (1) ./fc_map -S \"sub1 sub2 sub3\" -r \"roi1 roi2\" -n \"name1 name2\" \\"
+   echo "                -G language_network"
+   echo "         (2) ./fc_map -S \"sub1 sub2 sub3\" -r \"roi1 roi2\" -n \"name1 name2\" \\"
+   echo "                -G language_network -g"
    echo ""
    echo "OPTIONS:"
-   echo "  -x         Skip FC map (individual). Use with -m"
-   echo "  -X         Skip FC map if does not exist (individual). Use with -m"
-   echo "  -v         Skip FC map (group). Use with -m"
-   echo "  -i         Process each run individually. Each run will have a "
-   echo "              separate connectivity map"
-   echo "  -u <file>  Run file list (found in <subject>/<file>"
-   echo "  -m <file>  Covariates file (behavior/demographics). Should be organized as a "
-   echo "              comma separated file. For example:"
-   echo "                 SUBJECT, MEAS1, MEAS2"
-   echo "                 SUBJECT001, 5, 6"
-   echo "                 SUBJECT002, 7, 9"
-   echo "  -M <MEAS>  Field/column name from above (-m) that represents a measure"
-   echo "               to be correlated (multiples are okay). Each measure will be "
-   echo "               correlated with voxelwise connectivity strength for each seed."
-   echo "               if left out, all fields are used from -m file. "
-
-   echo "  -f         DO NOT project group results to fsaverage surface"
-   echo "  -q         DO NOT create screenshot of group results on fsaverage surface"
-
-   echo "  -c         Create individual maps"
-   echo "               (default if no action specified)"
-   echo "  -g         Create a group average map"
-   echo "  -G <name>  Group name, default 'FC'"
-   echo "               Note: This is also used to sort individual maps,"
-   echo "               so as to not overwrite other maps with similar ROI names."
-   echo "               Use a unique identifier for your analysis"
-   echo "  -b         Create a group binarized map"
-   echo "  -t <val>   Threshold (zfrm), default .2"
-   echo "  -k         Gaussian smoothing BOLD to process, default 6mm"
-   echo "  -p         Submit parallel jobs to cluster (will need to enter password) TODO"
-   echo "  -h         Display help"
+   echo "  -u  <file>    Run file list (found in <subject>/<file>"
+   echo "  -i            Generate unique connectivity map for each run, rather than each session"
+  #echo "  -f            Project group results to fsaverage surface TODO"
+  #echo "  -q            Create screenshot of group results on fsaverage surface TODO"
+   echo "  -G  <name>    Analysis name, default 'FC'. Use a unique identifier for your analysis."
+   echo "  -g            Create a group average map (must be run *after* individual maps are made)"
+   echo "  -k  <fwhm>    Smoothing kernel size (default is 6mm)"
+   echo "  -b            Create a group binarized map (set threshold with -t)"
+   echo "  -t  <thresh>  Binarized map threshold (z-transform; use with -b; default is 0.2)"
+   echo "  -h            Help"
+   echo ""
+   echo "COVARIATE ANALYSIS (new): Compute voxel-wise correlation between Fisher's z maps and"
+   echo "                an additional measure (eg. IQ, TrailsB score, PASS subscale score, etc.)."
+   echo "                Each measure will be correlated with voxelwise connectivity strength for "
+   echo "                each seed."
+   echo "  -m  <file>    Comma-separated covariates file, with column header. For example:"
+   echo "                  SUBJECT, MEAS1, MEAS2"
+   echo "                  SUBJECT001, 5, 6"
+   echo "                  SUBJECT002, 7, 9"
+   echo "  -M  <MEAS>    Column header from above (-m) representing a measure to be correlated "
+   echo "                (multiples are okay). If left out, all fields are used from -m file. "
+   echo "  -x            Skip subject-level fc_map generation (use with -m)"
+#   echo "  -X            Skip FC map if does not exist (individual). Use with -m TODO"
+   echo "  -v            Skip group-level fc_map generation (use with -m)"
+   echo ""
+   #echo "  -p           Submit parallel jobs to cluster (will need to enter password) TODO"
+   echo "EXAMPLE: (1) ./fc_map -s group1.list -s group2.list \\"
+   echo "                -r roi_files.list \\"
+   echo "                -n roi_names.list \\"
+   echo "                -m NEO_depression_score.txt"
+   echo "                -G salience_network_vs_NEO_depression"
+   echo "         (2) ./fc_map -s group1.list -s group2.list \\"
+   echo "                -r roi_files.list \\"
+   echo "                -n roi_names.list \\"
+   echo "                -m NEO_depression_score.txt"
+   echo "                -G salience_network_vs_NEO_depression \\"
+   echo "                -g "
    echo ""
 }
 
@@ -75,7 +94,7 @@ SKIPGROUP=0
 GROUPAVG=""
 BRAINMASK="/cluster/animal/users/mhollen/mni/MNI152lin_T1_2mm_brain_mask.nii.gz"
 
-while getopts "s:S:r:R:n:N:t:G:T:k:u:m:M:g b h c i x v X " o ; do
+while getopts "s:S:r:R:n:N:t:G:T:k:u:m:M:g b h c i x v X f " o ; do
     case $o in
          s ) SUBJECTSfile="$SUBJECTSfile $OPTARG";;
 	 S ) SUBJECTS=$OPTARG;;
@@ -93,6 +112,7 @@ while getopts "s:S:r:R:n:N:t:G:T:k:u:m:M:g b h c i x v X " o ; do
 	 T ) FRAMES=$OPTARG;;
 	 k ) SMOOTH=$OPTARG;;
 	 i ) SEPARATE=1;;
+         f ) FSPROJECT=1;;
 	 u ) RUNFILE=$OPTARG;;
 	 x ) SKIPMAPS=1;;
 	 X ) SKIPMAPSEXIST=1;;
@@ -293,6 +313,11 @@ if [[ "$MEASFILE" != "" ]]; then
     done
 fi
 
+# Project to fsaverage ... TODO
+#if [ "$FSPROJECT" != ""]; then
+#   echo "Projecting z-transform map to fsaverage cortical surface..."
+#   mri_vol2surf --mov 
+#fi
 
 if [ "$GROUPBIN" != "" ]; then
     echo "***************************"

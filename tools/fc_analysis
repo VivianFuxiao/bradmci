@@ -1,65 +1,73 @@
 #!/bin/bash
 
-# useful functions
-source /cluster/animal/scripts/matlab/matlab_74
-
-#
 # For each subject, extracts time courses for each run
 # and computes correlation coefficients using ROIs.
 # Also generates a corresponding matrix graphic. 
-#
+
+# use matlab version 7.4
+source /cluster/animal/scripts/matlab/matlab_74
 
 function usage {
 
    echo " ______ _____            _   _          _  __     _______ _____  _____ "
    echo "|  ____/ ____|     /\   | \ | |   /\   | | \ \   / / ____|_   _|/ ____|"
    echo "| |__ | |         /  \  |  \| |  /  \  | |  \ \_/ / (___   | | | (___  "
-   echo '|  __|| |        / /\ \ | . ` | / /\ \ | |   \   / \___ \  | |  \___ \  ~~~ version 1.2.1'
+   echo '|  __|| |        / /\ \ | . ` | / /\ \ | |   \   / \___ \  | |  \___ \  ~ v1.2.1'
    echo "| |   | |____   / ____ \| |\  |/ ____ \| |____| |  ____) |_| |_ ____) |"
-   echo "|_|    \_____| /_/    \_\_| \_/_/    \_\______|_| |_____/|_____|_____/ "             
+   echo "|_|    \_____| /_/    \_\_| \_/_/    \_\______|_| |_____/|_____|_____/ "  
    echo ""
+   echo "FC_ANALYSIS calculates ROI-to-ROI BOLD signal correlation coefficients. For each"
+   echo "subject, it extracts the HRF timecourse on a per-run basis for analysis. It also "
+   echo "generates a corresponding matrix graphic."
+   echo ""
+   echo "More documentation:" 
+   echo "  https://gate.nmr.mgh.harvard.edu/wiki/bradmci/index.php/NRG_Functional_Connectivity_Tools"
+   echo "GitHub:"
+   echo "  https://github.com/mrstepanovic/bradmci"
+   echo ""          
    echo "REQUIRED:"
-   echo "                (you can use multiple subject args to compare groups)"
-   echo "  -i  <arg>     Subject names, OR"
-   echo "  -I  <file>    File containing subject names"
+   echo "  -S  <subjid>  Subject names (use multiple in quotes to compare groups)"
+   echo "  -R  <paths>   ROI file locations"
+   echo "  -N  <names>   ROI names (default is ROI file name)"
    echo ""
-   echo "  -r  <arg>     ROI file locations, OR"
-   echo "  -R  <file>    File containing ROI file locations"
-   echo "  and..."
-   echo "  -n  <arg>     ROI names, default ROI file name, OR"
-   echo "  -N  <file>    File containing ROI names"
+   echo "  OR"
    echo ""
-   echo "  -z  [network] Use network ROIs (instead of above). If no network is "
-   echo "                    specified, ALL available networks are used. "
-   echo "                    To see available networks: /cluster/animal/users/mhollen/scripts/fc_networks"
-   echo "                    (multiple -z arguments can be used)"
-   echo "  -Z            Instead of above, runs ALL available networks"
-   echo "  -v  <radius>  Radius of network ROIs (in mm)"
+   echo "  -s  <file>    File containing subject IDs"
+   echo "  -r  <file>    File containing ROI file locations"
+   echo "  -n  <file>    File containing ROI names"
    echo ""
-   echo "  -l  <arg>     Analysis label, e.g. 'DMN' (no spaces). This will be the"
-   echo "                      root-name if multiple subject groups are used."
+   echo "EXAMPLE: ./fc_analysis -S \"sub1 sub2 sub3\" -R \"roi1 roi2\" -N \"name1 name2\""
    echo ""
-   echo "Options:"
+   echo "EXAMPLE: ./fc_analysis -s group1.list -s group2.list \\"
+   echo "                -r roi_files.list \\"
+   echo "                -n roi_names.list \\"
+   echo "                -l DMN_group1_vs_group2"
+   echo ""
+   echo "OPTIONS:"
+   echo "  -l  <label>   Analysis label (no spaces)"
+   echo "  -o  <dir>     Output directory, default ./GROUP_STATS/<user>/FC"
    echo "  -u  <file>    Filename of run list (as found in <SUBJECT>/<file>)"
-   echo "  -w            When comparing groups, also look at within-network "
-   echo "                 (ROI-ROI) differences."
-   echo "  -k            Gaussian smoothing BOLD to process, default 6mm"
+   echo "  -k  <fwhm>    Smoothing kernel size (default is 6mm)"
+   echo ""
+   echo "MORE OPTIONS:"
    echo "  -e            Force timecourse extraction"
    echo "  -x            Skip extraction"
-   echo "  -s            Do not calculate subject averages"
+   echo "  -d            Do not calculate subject averages"
    echo "  -t            Do not calculate group averages"
    echo "  -m            Make images of coefficent matrices"
-   echo "  -p  <arg>     Only show coefficients where p < arg. (default is .05)."
-   echo "                All other values are converted to 0.000 on matrix plots" 
-   echo "  -o  <arg>     Output directory, default ./GROUP_STATS/<user>/FC"
+   echo "  -w            When comparing groups, also look at within-network differences."
+   echo "  -p  <thresh>  Only show coefficients where p < arg. (default is .05)."
+   echo "                (All other values are converted to 0.000 on matrix plots)" 
    echo "  -b            Make bar graphs"
    echo "  -h            Help"
-   echo ""
-   echo "Note: when using multiple arguments, place in quotes:"
-   echo "fc_analysis -i \"SUBJ1 SUBJ2 SUBJ3\" -r \"ROI1 ROI2\""
    echo ""   
+   echo "EASY NETWORK ANALYSIS (new): Use pre-loaded, standardized network ROIs. "
+   echo "                Run NRG-fc/tools/fc_networks to see available networks."
+   echo "  -z  [network] Use network ROIs (instead of above). Multiple -z's can be used."
+   echo "  -Z            Instead of -z above, runs *all* available networks"
+   echo "  -v  <mm>      Radius of above network ROIs (default is 6mm)"
+   echo ""
 }
-
 
 # To not complicate the argument case statement, these functions
 # serve to organize the subjects and their correspond grouping
@@ -109,19 +117,19 @@ SMOOTH=6;
 
 while getopts "i:r:I:R:n:N:u:l:o:p:k:v:z: Z e h t s m w x b " o ; do
     case $o in
-     i ) addSubjects "$OPTARG";;
-	 I ) addSubjectFile $OPTARG;;
-	 r ) ROIS=$OPTARG;;
-	 R ) ROIS=$(cat $OPTARG | xargs);;
-	 n ) ROINAMES=$OPTARG;;
-	 N ) ROINAMES=$(cat $OPTARG | xargs);;
+     S ) addSubjects "$OPTARG";;
+	 s ) addSubjectFile $OPTARG;;
+	 R ) ROIS=$OPTARG;;
+	 r ) ROIS=$(cat $OPTARG | xargs);;
+	 N ) ROINAMES=$OPTARG;;
+	 n ) ROINAMES=$(cat $OPTARG | xargs);;
 	 k ) SMOOTH=$OPTARG;;
 	 e ) FORCEEXTRACT=1;;
 	 p ) PVAL=$OPTARG;;
 	 l ) ROOTNAME=$OPTARG;;
 	 o ) RD=$OPTARG;;
 	 t ) SKIPSUB=1;;
-	 s ) SKIPGRP=1;;
+	 d ) SKIPGRP=1;;
 	 m ) MAKEIMG=1;;
 	 x ) SKIPEXTRACT=1;;
 	 w ) WITHINNETWORK=1;;
